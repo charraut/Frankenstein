@@ -12,11 +12,9 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from tqdm import tqdm
 
 # Local 
-import sys
-sys.path.append('/home/ttournai/Workspace/DAR/Frankenstein/')
-from utils.replay_buffer import ReplayBuffer
-from utils.architecture import ActorCriticNet
-from utils.utils import make_env, reset_nn_layers
+from frankenstein.utils.replay_buffer import ReplayBuffer
+from frankenstein.utils.architecture import ActorCriticNet
+from frankenstein.utils.utils import make_env, reset_nn_layers
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -31,7 +29,7 @@ def parse_args():
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--alpha", type=float, default=0.2)
     parser.add_argument("--learning_start", type=int, default=25_000)
-    parser.add_argument("--gradient_steps", type=int, default=4)
+    parser.add_argument("--gradient_steps", type=int, default=32)
     parser.add_argument("--train_freq", type=int, default=1)
     parser.add_argument("--reset_nn_freq", type=int, default=50_000)
     parser.add_argument("--cpu", action="store_true")
@@ -231,7 +229,7 @@ if __name__ == "__main__":
     run_name = "SR_SAC_PyTorch_Base_RR4"
     run_dir = f"runs/{args_.env_id}__{run_name}__{run_time}"
 
-    print(f"Commencing training of {run_name} on {args_.env_id} for {args_.total_timesteps} timesteps.")
+    print(f"Starting training of {run_name} on {args_.env_id} for {args_.total_timesteps} timesteps.")
     print(f"Results will be saved to: {run_dir}")
     mean_train_return = train(args=args_, run_name=run_name, run_dir=run_dir)
     print(f"Training - Mean returns achieved: {mean_train_return}.")

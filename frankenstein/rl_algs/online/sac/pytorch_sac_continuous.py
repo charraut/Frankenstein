@@ -12,11 +12,9 @@ from torch.utils.tensorboard.writer import SummaryWriter
 from tqdm import tqdm
 
 # Local 
-import sys
-sys.path.append('/home/ttournai/Workspace/DAR/Frankenstein/')
-from utils.replay_buffer import ReplayBuffer
-from utils.architecture import ActorCriticNet
-from utils.utils import make_env
+from frankenstein.utils.replay_buffer import ReplayBuffer
+from frankenstein.utils.architecture import ActorCriticNet
+from frankenstein.utils.utils import make_env
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -215,7 +213,7 @@ if __name__ == "__main__":
     run_name = "SAC_PyTorch_Base_RR2"
     run_dir = f"runs/{args_.env_id}__{run_name}__{run_time}"
 
-    print(f"Commencing training of {run_name} on {args_.env_id} for {args_.total_timesteps} timesteps.")
+    print(f"Starting training of {run_name} on {args_.env_id} for {args_.total_timesteps} timesteps.")
     print(f"Results will be saved to: {run_dir}")
     mean_train_return = train(args=args_, run_name=run_name, run_dir=run_dir)
     print(f"Training - Mean returns achieved: {mean_train_return}.")
