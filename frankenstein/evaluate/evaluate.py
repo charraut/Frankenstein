@@ -3,12 +3,12 @@ import minari
 import gymnasium as gym
 from minari import DataCollectorV0
 import numpy as np
-import datetime
+from datetime import datetime
 import argparse
 
 
 # Local
-from frankenstein.utils.utils import make_env
+from frankenstein.utils.utils import make_env, PATH_TO_MAIN_PROJECT
 from frankenstein.utils.architecture import ActorCriticNet
 
 
@@ -26,31 +26,33 @@ def parse_args():
     return args
 
 
-def evaluate(args, run_dir, collect_dataset):
+def evaluate(args, run_dir, act_randomly, collect_dataset):
     # Create environment
-    env = gym.vector.SyncVectorEnv([make_env(args.env_id, capture_video=True, run_dir=run_dir)])
-
     if collect_dataset:
+        env = gym.make(args.env_id)
         env = DataCollectorV0(env, record_infos=True, max_buffer_steps=100000)
+    else:
+        env = gym.vector.SyncVectorEnv([make_env(args.env_id, capture_video=False, run_dir=run_dir)])
 
-    # Metadata about the environment
-    observation_shape = env.single_observation_space.shape
-    action_shape = env.single_action_space.shape
-    action_low = torch.from_numpy(env.single_action_space.low).to(args.device)
-    action_high = torch.from_numpy(env.single_action_space.high).to(args.device)
+    if not act_randomly:
+        # Metadata about the environment
+        observation_shape = env.single_observation_space.shape
+        action_shape = env.single_action_space.shape
+        action_low = torch.from_numpy(env.single_action_space.low).to(args.device)
+        action_high = torch.from_numpy(env.single_action_space.high).to(args.device)
 
-    # Load policy
-    policy = ActorCriticNet(
-        observation_shape,
-        action_shape,
-        args.actor_layers,
-        args.critic_layers,
-        action_low,
-        action_high,
-        args.device,
-    )
-    policy.load_state_dict(torch.load(f"{run_dir}/actor_" + args.actor_timestep + ".pt"))
-    policy.eval()
+        # Load policy
+        policy = ActorCriticNet(
+            observation_shape,
+            action_shape,
+            args.actor_layers,
+            args.critic_layers,
+            action_low,
+            action_high,
+            args.device,
+        )
+        policy.load_state_dict(torch.load(f"{run_dir}/actor_" + args.actor_timestep + ".pt"))
+        policy.eval()
 
     count_episodes = 0
     list_returns = []
@@ -59,26 +61,29 @@ def evaluate(args, run_dir, collect_dataset):
 
     # Run episodes
     while count_episodes < args.number_episodes:
-        state, _ = env.reset()
-        with torch.no_grad():
-            state_tensor = torch.from_numpy(state).to(args.device).float()
-            action, _ = policy(state_tensor)
+        num_steps = 0
+        while num_steps < env.spec.max_episode_steps:
+            state, _ = env.reset()
+            with torch.no_grad():
+                state_tensor = torch.from_numpy(state).to(args.device).float()
+                if act_randomly:
+                    action =  env.action_space.sample()
+                else:
+                    action, _ = policy(state_tensor)
+                    action = action.cpu().numpy()
 
-        action = action.cpu().numpy()
-        state, _, _, _, infos = env.step(action)
+            state, _, _, _, infos = env.step(action)
+            num_steps += 1
+        
+        # End of an episode 
+        count_episodes += 1
+        episode_return = infos['reward_run']
+        list_returns.append(0)
+        print(f"-> Episode {count_episodes}: {episode_return} return")
 
-        if "final_info" in infos:
-            info = infos["final_info"][0]
-            returns = info["episode"]["r"][0]
-            count_episodes += 1
-            list_returns.append(returns)
-            print(f"-> Episode {count_episodes}: {returns} returns")
-
-    dataset = minari.create_dataset_from_collector_env(dataset_id=args.env_id + "_", 
-                                                       collector_env=env,
-                                                       algorithm_name="Policy"
-                                                       )
-
+    minari.create_dataset_from_collector_env(dataset_id=args.env_id + "random_policy_100ep_-v0",
+                                            collector_env=env)
+                                                   
     env.close()
     return np.mean(list_returns)
 
@@ -89,5 +94,5 @@ if __name__ == '__main__':
     run_name = "SR_SAC_PyTorch_Base_RR4"
     run_dir = f"runs/{args_.env_id}__{run_name}__{run_time}"
 
-    print(f"Starting evaluation of {run_name} on {args_.env_id} for {args_.total_timesteps} timesteps.")
-    evaluate(args_, run_dir, collect_dataset=False)
+    print(f"Starting evaluation of {run_name} on {args_.env_id} for {args_.number_episodes} episodes.")
+    evaluate(args_, run_dir, act_randomly=True, collect_dataset=True)

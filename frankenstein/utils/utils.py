@@ -2,6 +2,8 @@
 import torch
 import numpy as np
 import gymnasium as gym
+import pathlib
+PATH_TO_MAIN_PROJECT = str(pathlib.Path(__file__).parent.parent.parent.absolute()) + '/'
 
 # Method to build Gym Env
 def make_env(env_id, capture_video=False, run_dir="."):

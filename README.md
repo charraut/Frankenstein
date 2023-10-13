@@ -5,10 +5,15 @@ Frankenstein 🧟 is a Deep Reinforcement Learning library that provides high-qu
 The highlight features of Frankenstein are:
 
 🎮 Online reinforcement learning 
+
 🕹️ Offline reinforcement learning
+
 🌉 Bridging Online and Offline reinforcement learning
+
 📊 Benchmarked Implementation on Mujoco
+
 📈 Tensorboard Logging
+
 🌱 Local Reproducibility via Seeding
 
 ## Online RL 🎮
