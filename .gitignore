@@ -1,2 +1,4 @@
 runs/
 __pycache__/
+frankenstein.egg-info/
+venv/

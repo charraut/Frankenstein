@@ -1,6 +1,0 @@
-README.md
-setup.py
-frankenstein.egg-info/PKG-INFO
-frankenstein.egg-info/SOURCES.txt
-frankenstein.egg-info/dependency_links.txt
-frankenstein.egg-info/top_level.txt
