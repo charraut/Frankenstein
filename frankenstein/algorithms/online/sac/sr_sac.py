@@ -2,6 +2,7 @@
 import argparse
 import time
 from datetime import datetime
+
 import gymnasium as gym
 import numpy as np
 import torch
@@ -11,10 +12,12 @@ from torch.nn.functional import mse_loss
 from torch.utils.tensorboard.writer import SummaryWriter
 from tqdm import tqdm
 
-# Local 
-from frankenstein.utils.replay_buffer import ReplayBuffer
 from frankenstein.utils.architecture import ActorCriticNet
+
+# Local
+from frankenstein.utils.replay_buffer import ReplayBuffer
 from frankenstein.utils.utils import make_env, reset_nn_layers
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -37,6 +40,7 @@ def parse_args():
     args = parser.parse_args()
     args.device = torch.device("cpu" if args.cpu or not torch.cuda.is_available() else "cuda")
     return args
+
 
 def train(args, run_name, run_dir):
     # Create tensorboard writer and save hyperparameters
@@ -138,17 +142,16 @@ def train(args, run_name, run_dir):
             writer.add_scalar("rollout/episodic_length", np.mean(info["episode"]["l"][-5:]), global_step)
 
         # Perform training step
-        if global_step > args.learning_start and not(global_step % args.train_freq):
+        if global_step > args.learning_start and not (global_step % args.train_freq):
             for _ in range(args.gradient_steps):
-
                 # Do the reset some times
-                time_to_reset = not (global_step % args.reset_nn_freq) and global_step <= args.total_timesteps*0.8
+                time_to_reset = not (global_step % args.reset_nn_freq) and global_step <= args.total_timesteps * 0.8
                 if time_to_reset:
                     # Reset layers Actor
                     reset_nn_layers(policy.actor_net)
                     reset_nn_layers(policy.actor_mean)
                     reset_nn_layers(policy.actor_logstd)
-                    
+
                     # Critic & critic_target
                     reset_nn_layers(policy.critic_net1)
                     reset_nn_layers(policy.critic_net2)
@@ -205,7 +208,7 @@ def train(args, run_name, run_dir):
             writer.add_scalar("train/next_q_value", next_q_value.mean(), global_step)
 
     # Save final policy
-        # Add temp save 
+    # Add temp save
 
     torch.save(policy.state_dict(), f"{run_dir}/policy.pt")
     print(f"Saved policy to {run_dir}/policy.pt")
@@ -220,6 +223,7 @@ def train(args, run_name, run_dir):
     writer.add_scalar("rollout/mean_train_return", mean_train_return, global_step)
 
     return mean_train_return
+
 
 if __name__ == "__main__":
     args_ = parse_args()

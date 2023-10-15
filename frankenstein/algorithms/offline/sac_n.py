@@ -19,6 +19,7 @@ import wandb
 from torch.distributions import Normal
 from tqdm import trange
 
+
 @dataclass
 class TrainConfig:
     # wandb project name
@@ -99,9 +100,7 @@ def wandb_init(config: dict) -> None:
     wandb.run.save()
 
 
-def set_seed(
-    seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False
-):
+def set_seed(seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False):
     if env is not None:
         env.seed(seed)
         env.action_space.seed(seed)
@@ -142,16 +141,10 @@ class ReplayBuffer:
         self._pointer = 0
         self._size = 0
 
-        self._states = torch.zeros(
-            (buffer_size, state_dim), dtype=torch.float32, device=device
-        )
-        self._actions = torch.zeros(
-            (buffer_size, action_dim), dtype=torch.float32, device=device
-        )
+        self._states = torch.zeros((buffer_size, state_dim), dtype=torch.float32, device=device)
+        self._actions = torch.zeros((buffer_size, action_dim), dtype=torch.float32, device=device)
         self._rewards = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
-        self._next_states = torch.zeros(
-            (buffer_size, state_dim), dtype=torch.float32, device=device
-        )
+        self._next_states = torch.zeros((buffer_size, state_dim), dtype=torch.float32, device=device)
         self._dones = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
         self._device = device
 
@@ -164,9 +157,7 @@ class ReplayBuffer:
             raise ValueError("Trying to load data into non-empty replay buffer")
         n_transitions = data["observations"].shape[0]
         if n_transitions > self._buffer_size:
-            raise ValueError(
-                "Replay buffer is smaller than the dataset you are trying to load!"
-            )
+            raise ValueError("Replay buffer is smaller than the dataset you are trying to load!")
         self._states[:n_transitions] = self._to_tensor(data["observations"])
         self._actions[:n_transitions] = self._to_tensor(data["actions"])
         self._rewards[:n_transitions] = self._to_tensor(data["rewards"][..., None])
@@ -214,16 +205,11 @@ class VectorizedLinear(nn.Module):
         nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # input: [ensemble_size, batch_size, input_size]
-        # weight: [ensemble_size, input_size, out_size]
-        # out: [ensemble_size, batch_size, out_size]
         return x @ self.weight + self.bias
 
 
 class Actor(nn.Module):
-    def __init__(
-        self, state_dim: int, action_dim: int, hidden_dim: int, max_action: float = 1.0
-    ):
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int, max_action: float = 1.0):
         super().__init__()
         self.trunk = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
@@ -262,10 +248,7 @@ class Actor(nn.Module):
         log_sigma = torch.clip(log_sigma, -5, 2)
         policy_dist = Normal(mu, torch.exp(log_sigma))
 
-        if deterministic:
-            action = mu
-        else:
-            action = policy_dist.rsample()
+        action = mu if deterministic else policy_dist.rsample()
 
         tanh_action, log_prob = torch.tanh(action), None
         if need_log_prob:
@@ -284,9 +267,7 @@ class Actor(nn.Module):
 
 
 class VectorizedCritic(nn.Module):
-    def __init__(
-        self, state_dim: int, action_dim: int, hidden_dim: int, num_critics: int
-    ):
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int, num_critics: int):
         super().__init__()
         self.critic = nn.Sequential(
             VectorizedLinear(state_dim + action_dim, hidden_dim, num_critics),
@@ -307,13 +288,8 @@ class VectorizedCritic(nn.Module):
         self.num_critics = num_critics
 
     def forward(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        # [batch_size, state_dim + action_dim]
         state_action = torch.cat([state, action], dim=-1)
-        # [num_critics, batch_size, state_dim + action_dim]
-        state_action = state_action.unsqueeze(0).repeat_interleave(
-            self.num_critics, dim=0
-        )
-        # [num_critics, batch_size]
+        state_action = state_action.unsqueeze(0).repeat_interleave(self.num_critics, dim=0)
         q_values = self.critic(state_action).squeeze(-1)
         return q_values
 
@@ -345,9 +321,7 @@ class SACN:
 
         # adaptive alpha setup
         self.target_entropy = -float(self.actor.action_dim)
-        self.log_alpha = torch.tensor(
-            [0.0], dtype=torch.float32, device=self.device, requires_grad=True
-        )
+        self.log_alpha = torch.tensor([0.0], dtype=torch.float32, device=self.device, requires_grad=True)
         self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=alpha_learning_rate)
         self.alpha = self.log_alpha.exp().detach()
 
@@ -382,9 +356,7 @@ class SACN:
         done: torch.Tensor,
     ) -> torch.Tensor:
         with torch.no_grad():
-            next_action, next_action_log_prob = self.actor(
-                next_state, need_log_prob=True
-            )
+            next_action, next_action_log_prob = self.actor(next_state, need_log_prob=True)
             q_next = self.target_critic(next_state, next_action).min(0).values
             q_next = q_next - self.alpha * next_action_log_prob
 
@@ -392,13 +364,12 @@ class SACN:
             q_target = reward + self.gamma * (1 - done) * q_next.unsqueeze(-1)
 
         q_values = self.critic(state, action)
-        # [ensemble_size, batch_size] - [1, batch_size]
         loss = ((q_values - q_target.view(1, -1)) ** 2).mean(dim=1).sum(dim=0)
 
         return loss
 
     def update(self, batch: TensorBatch) -> Dict[str, float]:
-        state, action, reward, next_state, done = [arr.to(self.device) for arr in batch]
+        state, action, reward, next_state, done = (arr.to(self.device) for arr in batch)
         # Usually updates are done in the following order: critic -> actor -> alpha
         # But we found that EDAC paper uses reverse (which gives better results)
 
@@ -467,9 +438,7 @@ class SACN:
 
 
 @torch.no_grad()
-def eval_actor(
-    env: gym.Env, actor: Actor, device: str, n_episodes: int, seed: int
-) -> np.ndarray:
+def eval_actor(env: gym.Env, actor: Actor, device: str, n_episodes: int, seed: int) -> np.ndarray:
     env.seed(seed)
     actor.eval()
     episode_rewards = []
@@ -539,13 +508,9 @@ def train(config: TrainConfig):
     actor = Actor(state_dim, action_dim, config.hidden_dim, config.max_action)
     actor.to(config.device)
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=config.actor_learning_rate)
-    critic = VectorizedCritic(
-        state_dim, action_dim, config.hidden_dim, config.num_critics
-    )
+    critic = VectorizedCritic(state_dim, action_dim, config.hidden_dim, config.num_critics)
     critic.to(config.device)
-    critic_optimizer = torch.optim.Adam(
-        critic.parameters(), lr=config.critic_learning_rate
-    )
+    critic_optimizer = torch.optim.Adam(critic.parameters(), lr=config.critic_learning_rate)
 
     trainer = SACN(
         actor=actor,

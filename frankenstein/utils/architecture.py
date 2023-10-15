@@ -1,7 +1,8 @@
-import torch
 import numpy as np
+import torch
 from torch import nn
 from torch.distributions import Normal
+
 
 class ActorCriticNet(nn.Module):
     def __init__(self, observation_shape, action_dim, actor_layers, critic_layers, action_low, action_high, device):

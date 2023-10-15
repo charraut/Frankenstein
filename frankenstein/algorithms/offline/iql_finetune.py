@@ -19,6 +19,7 @@ import wandb
 from torch.distributions import Normal
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
+
 TensorBatch = List[torch.Tensor]
 
 
@@ -91,9 +92,7 @@ def wrap_env(
 ) -> gym.Env:
     # PEP 8: E731 do not assign a lambda expression, use a def
     def normalize_state(state):
-        return (
-            state - state_mean
-        ) / state_std  # epsilon should be already added in std.
+        return (state - state_mean) / state_std  # epsilon should be already added in std.
 
     def scale_reward(reward):
         # Please be careful, here reward is multiplied by scale!
@@ -117,16 +116,10 @@ class ReplayBuffer:
         self._pointer = 0
         self._size = 0
 
-        self._states = torch.zeros(
-            (buffer_size, state_dim), dtype=torch.float32, device=device
-        )
-        self._actions = torch.zeros(
-            (buffer_size, action_dim), dtype=torch.float32, device=device
-        )
+        self._states = torch.zeros((buffer_size, state_dim), dtype=torch.float32, device=device)
+        self._actions = torch.zeros((buffer_size, action_dim), dtype=torch.float32, device=device)
         self._rewards = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
-        self._next_states = torch.zeros(
-            (buffer_size, state_dim), dtype=torch.float32, device=device
-        )
+        self._next_states = torch.zeros((buffer_size, state_dim), dtype=torch.float32, device=device)
         self._dones = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
         self._device = device
 
@@ -139,9 +132,7 @@ class ReplayBuffer:
             raise ValueError("Trying to load data into non-empty replay buffer")
         n_transitions = data["observations"].shape[0]
         if n_transitions > self._buffer_size:
-            raise ValueError(
-                "Replay buffer is smaller than the dataset you are trying to load!"
-            )
+            raise ValueError("Replay buffer is smaller than the dataset you are trying to load!")
         self._states[:n_transitions] = self._to_tensor(data["observations"])
         self._actions[:n_transitions] = self._to_tensor(data["actions"])
         self._rewards[:n_transitions] = self._to_tensor(data["rewards"][..., None])
@@ -186,9 +177,7 @@ def set_env_seed(env: Optional[gym.Env], seed: int):
     env.action_space.seed(seed)
 
 
-def set_seed(
-    seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False
-):
+def set_seed(seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False):
     if env is not None:
         set_env_seed(env, seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -217,7 +206,11 @@ def is_goal_reached(reward: float, info: Dict) -> bool:
 
 @torch.no_grad()
 def eval_actor(
-    env: gym.Env, actor: nn.Module, device: str, n_episodes: int, seed: int
+    env: gym.Env,
+    actor: nn.Module,
+    device: str,
+    n_episodes: int,
+    seed: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
     env.seed(seed)
     actor.eval()
@@ -298,7 +291,7 @@ class MLP(nn.Module):
         self,
         dims,
         activation_fn: Callable[[], nn.Module] = nn.ReLU,
-        output_activation_fn: Callable[[], nn.Module] = None,
+        output_activation_fn: Optional[Callable[[], nn.Module]] = None,
         squeeze_output: bool = False,
         dropout: float = 0.0,
     ):
@@ -384,25 +377,18 @@ class DeterministicPolicy(nn.Module):
     def act(self, state: np.ndarray, device: str = "cpu"):
         state = torch.tensor(state.reshape(1, -1), device=device, dtype=torch.float32)
         return (
-            torch.clamp(self(state) * self.max_action, -self.max_action, self.max_action)
-            .cpu()
-            .data.numpy()
-            .flatten()
+            torch.clamp(self(state) * self.max_action, -self.max_action, self.max_action).cpu().data.numpy().flatten()
         )
 
 
 class TwinQ(nn.Module):
-    def __init__(
-        self, state_dim: int, action_dim: int, hidden_dim: int = 256, n_hidden: int = 2
-    ):
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 256, n_hidden: int = 2):
         super().__init__()
         dims = [state_dim + action_dim, *([hidden_dim] * n_hidden), 1]
         self.q1 = MLP(dims, squeeze_output=True)
         self.q2 = MLP(dims, squeeze_output=True)
 
-    def both(
-        self, state: torch.Tensor, action: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def both(self, state: torch.Tensor, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         sa = torch.cat([state, action], 1)
         return self.q1(sa), self.q2(sa)
 
@@ -586,12 +572,8 @@ def train(config: TrainConfig):
     else:
         state_mean, state_std = 0, 1
 
-    dataset["observations"] = normalize_states(
-        dataset["observations"], state_mean, state_std
-    )
-    dataset["next_observations"] = normalize_states(
-        dataset["next_observations"], state_mean, state_std
-    )
+    dataset["observations"] = normalize_states(dataset["observations"], state_mean, state_std)
+    dataset["next_observations"] = normalize_states(dataset["next_observations"], state_mean, state_std)
     env = wrap_env(env, state_mean=state_mean, state_std=state_std)
     eval_env = wrap_env(eval_env, state_mean=state_mean, state_std=state_std)
     replay_buffer = ReplayBuffer(
@@ -618,13 +600,9 @@ def train(config: TrainConfig):
     q_network = TwinQ(state_dim, action_dim).to(config.device)
     v_network = ValueFunction(state_dim).to(config.device)
     actor = (
-        DeterministicPolicy(
-            state_dim, action_dim, max_action, dropout=config.actor_dropout
-        )
+        DeterministicPolicy(state_dim, action_dim, max_action, dropout=config.actor_dropout)
         if config.iql_deterministic
-        else GaussianPolicy(
-            state_dim, action_dim, max_action, dropout=config.actor_dropout
-        )
+        else GaussianPolicy(state_dim, action_dim, max_action, dropout=config.actor_dropout)
     ).to(config.device)
     v_optimizer = torch.optim.Adam(v_network.parameters(), lr=config.vf_lr)
     q_optimizer = torch.optim.Adam(q_network.parameters(), lr=config.qf_lr)
@@ -678,17 +656,11 @@ def train(config: TrainConfig):
         online_log = {}
         if t >= config.offline_iterations:
             episode_step += 1
-            action = actor(
-                torch.tensor(
-                    state.reshape(1, -1), device=config.device, dtype=torch.float32
-                )
-            )
+            action = actor(torch.tensor(state.reshape(1, -1), device=config.device, dtype=torch.float32))
             if not config.iql_deterministic:
                 action = action.sample()
             else:
-                noise = (torch.randn_like(action) * config.expl_noise).clamp(
-                    -config.noise_clip, config.noise_clip
-                )
+                noise = (torch.randn_like(action) * config.expl_noise).clamp(-config.noise_clip, config.noise_clip)
                 action += noise
             action = torch.clamp(max_action * action, -max_action, max_action)
             action = action.cpu().data.numpy().flatten()
@@ -716,9 +688,7 @@ def train(config: TrainConfig):
                     online_log["train/is_success"] = float(goal_achieved)
                 online_log["train/episode_return"] = episode_return
                 normalized_return = eval_env.get_normalized_score(episode_return)
-                online_log["train/d4rl_normalized_episode_return"] = (
-                    normalized_return * 100.0
-                )
+                online_log["train/d4rl_normalized_episode_return"] = normalized_return * 100.0
                 online_log["train/episode_length"] = episode_step
                 episode_return = 0
                 episode_step = 0
@@ -756,7 +726,7 @@ def train(config: TrainConfig):
             print("---------------------------------------")
             print(
                 f"Evaluation over {config.n_episodes} episodes: "
-                f"{eval_score:.3f} , D4RL score: {normalized_eval_score:.3f}"
+                f"{eval_score:.3f} , D4RL score: {normalized_eval_score:.3f}",
             )
             print("---------------------------------------")
             if config.checkpoints_path is not None:

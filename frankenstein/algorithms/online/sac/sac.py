@@ -2,6 +2,7 @@
 import argparse
 import time
 from datetime import datetime
+
 import gymnasium as gym
 import numpy as np
 import torch
@@ -11,10 +12,12 @@ from torch.nn.functional import mse_loss
 from torch.utils.tensorboard.writer import SummaryWriter
 from tqdm import tqdm
 
-# Local 
-from frankenstein.utils.replay_buffer import ReplayBuffer
 from frankenstein.utils.architecture import ActorCriticNet
+
+# Local
+from frankenstein.utils.replay_buffer import ReplayBuffer
 from frankenstein.utils.utils import make_env
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -36,6 +39,7 @@ def parse_args():
     args = parser.parse_args()
     args.device = torch.device("cpu" if args.cpu or not torch.cuda.is_available() else "cuda")
     return args
+
 
 def train(args, run_name, run_dir):
     # Create tensorboard writer and save hyperparameters
@@ -138,9 +142,8 @@ def train(args, run_name, run_dir):
             writer.add_scalar("rollout/episodic_length", np.mean(info["episode"]["l"][-5:]), global_step)
 
         # Perform training step
-        if global_step > args.learning_start and not(global_step % args.train_freq):
+        if global_step > args.learning_start and not (global_step % args.train_freq):
             for _ in range(args.gradient_steps):
-
                 # Sample a batch from the replay buffer
                 states, actions, rewards, next_states, flags = replay_buffer.sample()
 
@@ -204,6 +207,7 @@ def train(args, run_name, run_dir):
     writer.add_scalar("rollout/mean_train_return", mean_train_return, global_step)
 
     return mean_train_return
+
 
 if __name__ == "__main__":
     args_ = parse_args()

@@ -19,6 +19,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, IterableDataset
 from tqdm.auto import trange
 
+
 @dataclass
 class TrainConfig:
     # wandb project name
@@ -90,9 +91,7 @@ class TrainConfig:
 
 
 # general utils
-def set_seed(
-    seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False
-):
+def set_seed(seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False):
     if env is not None:
         env.seed(seed)
         env.action_space.seed(seed)
@@ -133,9 +132,7 @@ def wrap_env(
 
 
 # some utils functionalities specific for Decision Transformer
-def pad_along_axis(
-    arr: np.ndarray, pad_to: int, axis: int = 0, fill_value: float = 0.0
-) -> np.ndarray:
+def pad_along_axis(arr: np.ndarray, pad_to: int, axis: int = 0, fill_value: float = 0.0) -> np.ndarray:
     pad_size = pad_to - arr.shape[axis]
     if pad_size <= 0:
         return arr
@@ -154,7 +151,8 @@ def discounted_cumsum(x: np.ndarray, gamma: float) -> np.ndarray:
 
 
 def load_d4rl_trajectories(
-    env_name: str, gamma: float = 1.0
+    env_name: str,
+    gamma: float = 1.0,
 ) -> Tuple[List[DefaultDict[str, np.ndarray]], Dict[str, Any]]:
     dataset = gym.make(env_name).get_dataset()
     traj, traj_len = [], []
@@ -168,9 +166,7 @@ def load_d4rl_trajectories(
         if dataset["terminals"][i] or dataset["timeouts"][i]:
             episode_data = {k: np.array(v, dtype=np.float32) for k, v in data_.items()}
             # return-to-go if gamma=1.0, just discounted returns else
-            episode_data["returns"] = discounted_cumsum(
-                episode_data["rewards"], gamma=gamma
-            )
+            episode_data["returns"] = discounted_cumsum(episode_data["rewards"], gamma=gamma)
             traj.append(episode_data)
             traj_len.append(episode_data["actions"].shape[0])
             # reset trajectory buffer
@@ -207,9 +203,7 @@ class SequenceDataset(IterableDataset):
         states = (states - self.state_mean) / self.state_std
         returns = returns * self.reward_scale
         # pad up to seq_len if needed, padding is masked during training
-        mask = np.hstack(
-            [np.ones(states.shape[0]), np.zeros(self.seq_len - states.shape[0])]
-        )
+        mask = np.hstack([np.ones(states.shape[0]), np.zeros(self.seq_len - states.shape[0])])
         if states.shape[0] < self.seq_len:
             states = pad_along_axis(states, pad_to=self.seq_len)
             actions = pad_along_axis(actions, pad_to=self.seq_len)
@@ -239,9 +233,7 @@ class TransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(embedding_dim)
         self.drop = nn.Dropout(residual_dropout)
 
-        self.attention = nn.MultiheadAttention(
-            embedding_dim, num_heads, attention_dropout, batch_first=True
-        )
+        self.attention = nn.MultiheadAttention(embedding_dim, num_heads, attention_dropout, batch_first=True)
         self.mlp = nn.Sequential(
             nn.Linear(embedding_dim, 4 * embedding_dim),
             nn.GELU(),
@@ -249,15 +241,11 @@ class TransformerBlock(nn.Module):
             nn.Dropout(residual_dropout),
         )
         # True value indicates that the corresponding position is not allowed to attend
-        self.register_buffer(
-            "causal_mask", ~torch.tril(torch.ones(seq_len, seq_len)).to(bool)
-        )
+        self.register_buffer("causal_mask", ~torch.tril(torch.ones(seq_len, seq_len)).to(bool))
         self.seq_len = seq_len
 
     # [batch_size, seq_len, emb_dim] -> [batch_size, seq_len, emb_dim]
-    def forward(
-        self, x: torch.Tensor, padding_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, padding_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         causal_mask = self.causal_mask[: x.shape[1], : x.shape[1]]
 
         norm_x = self.norm1(x)
@@ -271,7 +259,7 @@ class TransformerBlock(nn.Module):
         )[0]
         # by default pytorch attention does not use dropout
         # after final attention weights projection, while minGPT does:
-        # https://github.com/karpathy/minGPT/blob/7218bcfa527c65f164de791099de715b81a95106/mingpt/model.py#L70 # noqa
+        # https://github.com/karpathy/minGPT/blob/7218bcfa527c65f164de791099de715b81a95106/mingpt/model.py#L70
         x = x + self.drop(attention_out)
         x = x + self.mlp(self.norm2(x))
         return x
@@ -313,7 +301,7 @@ class DecisionTransformer(nn.Module):
                     residual_dropout=residual_dropout,
                 )
                 for _ in range(num_layers)
-            ]
+            ],
         )
         self.action_head = nn.Sequential(nn.Linear(embedding_dim, action_dim), nn.Tanh())
         self.seq_len = seq_len
@@ -344,13 +332,11 @@ class DecisionTransformer(nn.Module):
         padding_mask: Optional[torch.Tensor] = None,  # [batch_size, seq_len]
     ) -> torch.FloatTensor:
         batch_size, seq_len = states.shape[0], states.shape[1]
-        # [batch_size, seq_len, emb_dim]
         time_emb = self.timestep_emb(time_steps)
         state_emb = self.state_emb(states) + time_emb
         act_emb = self.action_emb(actions) + time_emb
         returns_emb = self.return_emb(returns_to_go.unsqueeze(-1)) + time_emb
 
-        # [batch_size, seq_len * 3, emb_dim], (r_0, s_0, a_0, r_1, s_1, a_1, ...)
         sequence = (
             torch.stack([returns_emb, state_emb, act_emb], dim=1)
             .permute(0, 2, 1, 3)
@@ -372,7 +358,6 @@ class DecisionTransformer(nn.Module):
             out = block(out, padding_mask=padding_mask)
 
         out = self.out_norm(out)
-        # [batch_size, seq_len, action_dim]
         # predict actions only from state embeddings
         out = self.action_head(out[:, 1::3]) * self.max_action
         return out
@@ -386,12 +371,8 @@ def eval_rollout(
     target_return: float,
     device: str = "cpu",
 ) -> Tuple[float, float]:
-    states = torch.zeros(
-        1, model.episode_len + 1, model.state_dim, dtype=torch.float, device=device
-    )
-    actions = torch.zeros(
-        1, model.episode_len, model.action_dim, dtype=torch.float, device=device
-    )
+    states = torch.zeros(1, model.episode_len + 1, model.state_dim, dtype=torch.float, device=device)
+    actions = torch.zeros(1, model.episode_len, model.action_dim, dtype=torch.float, device=device)
     returns = torch.zeros(1, model.episode_len + 1, dtype=torch.float, device=device)
     time_steps = torch.arange(model.episode_len, dtype=torch.long, device=device)
     time_steps = time_steps.view(1, -1)
@@ -434,9 +415,7 @@ def train(config: TrainConfig):
     wandb_init(asdict(config))
 
     # data & dataloader setup
-    dataset = SequenceDataset(
-        config.env_name, seq_len=config.seq_len, reward_scale=config.reward_scale
-    )
+    dataset = SequenceDataset(config.env_name, seq_len=config.seq_len, reward_scale=config.reward_scale)
     trainloader = DataLoader(
         dataset,
         batch_size=config.batch_size,
@@ -488,7 +467,7 @@ def train(config: TrainConfig):
     trainloader_iter = iter(trainloader)
     for step in trange(config.update_steps, desc="Training"):
         batch = next(trainloader_iter)
-        states, actions, returns, time_steps, mask = [b.to(config.device) for b in batch]
+        states, actions, returns, time_steps, mask = (b.to(config.device) for b in batch)
         # True value indicates that the corresponding key value will be ignored
         padding_mask = ~mask.to(torch.bool)
 
@@ -500,7 +479,6 @@ def train(config: TrainConfig):
             padding_mask=padding_mask,
         )
         loss = F.mse_loss(predicted_actions, actions.detach(), reduction="none")
-        # [batch_size, seq_len, action_dim] * [batch_size, seq_len, 1]
         loss = (loss * mask.unsqueeze(-1)).mean()
 
         optim.zero_grad()
@@ -534,19 +512,13 @@ def train(config: TrainConfig):
                     # unscale for logging & correct normalized score computation
                     eval_returns.append(eval_return / config.reward_scale)
 
-                normalized_scores = (
-                    eval_env.get_normalized_score(np.array(eval_returns)) * 100
-                )
+                normalized_scores = eval_env.get_normalized_score(np.array(eval_returns)) * 100
                 wandb.log(
                     {
                         f"eval/{target_return}_return_mean": np.mean(eval_returns),
                         f"eval/{target_return}_return_std": np.std(eval_returns),
-                        f"eval/{target_return}_normalized_score_mean": np.mean(
-                            normalized_scores
-                        ),
-                        f"eval/{target_return}_normalized_score_std": np.std(
-                            normalized_scores
-                        ),
+                        f"eval/{target_return}_normalized_score_mean": np.mean(normalized_scores),
+                        f"eval/{target_return}_normalized_score_std": np.std(normalized_scores),
                     },
                     step=step,
                 )

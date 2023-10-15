@@ -1,9 +1,13 @@
-# Utils methods - 
-import torch
-import numpy as np
-import gymnasium as gym
+# Utils methods -
 import pathlib
-PATH_TO_MAIN_PROJECT = str(pathlib.Path(__file__).parent.parent.parent.absolute()) + '/'
+
+import gymnasium as gym
+import numpy as np
+import torch
+
+
+PATH_TO_MAIN_PROJECT = str(pathlib.Path(__file__).parent.parent.parent.absolute()) + "/"
+
 
 # Method to build Gym Env
 def make_env(env_id, capture_video=False, run_dir="."):
@@ -25,12 +29,16 @@ def make_env(env_id, capture_video=False, run_dir="."):
 
     return thunk
 
+
 # Soft reset for weight & bias (perturbate)
 def soft_reset_layer(layer, mu=0.0, std=0.01):
-    layer.weight.add(torch.tensor(np.random.normal(
-        mu, std, layer.weight.size()), dtype=torch.float).to(layer.weight.get_device()))
-    layer.bias.add(torch.tensor(np.random.normal(
-        mu, std, layer.bias.size()), dtype=torch.float).to(layer.bias.get_device()))
+    layer.weight.add(
+        torch.tensor(np.random.normal(mu, std, layer.weight.size()), dtype=torch.float).to(layer.weight.get_device()),
+    )
+    layer.bias.add(
+        torch.tensor(np.random.normal(mu, std, layer.bias.size()), dtype=torch.float).to(layer.bias.get_device()),
+    )
+
 
 # Hard reset for weight & bias (reinit)
 def hard_reset_layer(layer, std=np.sqrt(2), bias_const=0.0):
@@ -40,15 +48,15 @@ def hard_reset_layer(layer, std=np.sqrt(2), bias_const=0.0):
 
 # Method to reset layers of neural networks - SR_SAC
 def reset_nn_layers(network):
-    # Actor mean & logstd 
+    # Actor mean & logstd
     if isinstance(network, torch.nn.Linear):
         soft_reset_layer(network)
-    # Actor net, Critics & Targets 
+    # Actor net, Critics & Targets
     else:
-        i=0
+        i = 0
         for layer in network:
             # Avoid ReLU() layers
-            if hasattr(layer, 'weight'):
+            if hasattr(layer, "weight"):
                 if i < len(network) // 4:
                     soft_reset_layer(layer)
                 else:

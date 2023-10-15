@@ -1,15 +1,16 @@
-import torch
-import minari
-import gymnasium as gym
-from minari import DataCollectorV0
-import numpy as np
-from datetime import datetime
 import argparse
+from datetime import datetime
 
+import gymnasium as gym
+import minari
+import numpy as np
+import torch
+from minari import DataCollectorV0
+
+from frankenstein.utils.architecture import ActorCriticNet
 
 # Local
-from frankenstein.utils.utils import make_env, PATH_TO_MAIN_PROJECT
-from frankenstein.utils.architecture import ActorCriticNet
+from frankenstein.utils.utils import make_env
 
 
 def parse_args():
@@ -57,8 +58,6 @@ def evaluate(args, run_dir, act_randomly, collect_dataset):
     count_episodes = 0
     list_returns = []
 
-    #state, _ = env.reset(seed=args.seed) if args.seed else env.reset()
-
     # Run episodes
     while count_episodes < args.number_episodes:
         num_steps = 0
@@ -67,27 +66,27 @@ def evaluate(args, run_dir, act_randomly, collect_dataset):
             with torch.no_grad():
                 state_tensor = torch.from_numpy(state).to(args.device).float()
                 if act_randomly:
-                    action =  env.action_space.sample()
+                    action = env.action_space.sample()
                 else:
                     action, _ = policy(state_tensor)
                     action = action.cpu().numpy()
 
             state, _, _, _, infos = env.step(action)
             num_steps += 1
-        
-        # End of an episode 
+
+        # End of an episode
         count_episodes += 1
-        episode_return = infos['reward_run']
+        episode_return = infos["reward_run"]
         list_returns.append(0)
         print(f"-> Episode {count_episodes}: {episode_return} return")
 
-    minari.create_dataset_from_collector_env(dataset_id=args.env_id + "random_policy_100ep_-v0",
-                                            collector_env=env)
-                                                   
+    minari.create_dataset_from_collector_env(dataset_id=args.env_id + "random_policy_100ep_-v0", collector_env=env)
+
     env.close()
     return np.mean(list_returns)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     args_ = parse_args()
 
     run_time = str(datetime.now().strftime("%d-%m_%H:%M:%S"))

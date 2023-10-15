@@ -1,5 +1,6 @@
-import torch
 import numpy as np
+import torch
+
 
 class ReplayBuffer:
     def __init__(self, buffer_size, batch_size, observation_shape, action_shape, numpy_rng, device):
@@ -35,7 +36,6 @@ class ReplayBuffer:
             torch.from_numpy(self.states[idxs + 1]).to(self.device),
             torch.from_numpy(self.flags[idxs]).to(self.device),
         )
-    
+
     def prioritized_buffer(self):
         pass
-    
