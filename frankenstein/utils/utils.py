@@ -47,18 +47,27 @@ def hard_reset_layer(layer, std=np.sqrt(2), bias_const=0.0):
 
 
 # Method to reset layers of neural networks - SR_SAC
-def reset_nn_layers(network):
+def reset_nn_layers(network, fully_hard=False, fully_soft=False):
     # Actor mean & logstd
     if isinstance(network, torch.nn.Linear):
-        soft_reset_layer(network)
+        if fully_hard:
+            hard_reset_layer(network)
+        else:
+            soft_reset_layer(network)
     # Actor net, Critics & Targets
     else:
         i = 0
         for layer in network:
             # Avoid ReLU() layers
             if hasattr(layer, "weight"):
-                if i < len(network) // 4:
-                    soft_reset_layer(layer)
+                if i < len(network) // 2:
+                    if fully_hard:
+                        hard_reset_layer(layer)
+                    else:
+                        soft_reset_layer(layer)
                 else:
-                    hard_reset_layer(layer)
+                    if fully_soft:
+                        soft_reset_layer(layer)
+                    else:
+                        hard_reset_layer(layer)
                 i += 1

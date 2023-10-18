@@ -24,17 +24,18 @@ def parse_args():
     parser.add_argument("--env_id", type=str, default="HalfCheetah-v4")
     parser.add_argument("--total_timesteps", type=int, default=1_000_000)
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--buffer_size", type=int, default=50_000)
+    parser.add_argument("--buffer_size", type=int, default=100_000)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
-    parser.add_argument("--actor_layers", nargs="+", type=int, default=[256, 256, 256, 256])
-    parser.add_argument("--critic_layers", nargs="+", type=int, default=[256, 256, 256, 256])
+    parser.add_argument("--actor_layers", nargs="+", type=int, default=[256, 256])
+    parser.add_argument("--critic_layers", nargs="+", type=int, default=[256, 256])
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--alpha", type=float, default=0.2)
     parser.add_argument("--learning_start", type=int, default=25_000)
-    parser.add_argument("--gradient_steps", type=int, default=32)
+    parser.add_argument("--gradient_steps", type=int, default=4)
     parser.add_argument("--train_freq", type=int, default=1)
-    parser.add_argument("--reset_nn_freq", type=int, default=50_000)
+    parser.add_argument("--reset_nn_freq", type=int, default=10_000)
+    parser.add_argument("--saved_model_freq", type=int, default=4)
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
@@ -115,6 +116,7 @@ def train(args, run_name, run_dir):
     start_time = time.process_time()
 
     # Main loop
+    nb_save = 1
     for global_step in tqdm(range(args.total_timesteps)):
         if global_step < args.learning_start:
             action = Uniform(action_low, action_high).sample().unsqueeze(0)
@@ -207,11 +209,11 @@ def train(args, run_name, run_dir):
             writer.add_scalar("train/min_qf_next_target", min_qf_next_target.mean(), global_step)
             writer.add_scalar("train/next_q_value", next_q_value.mean(), global_step)
 
-    # Save final policy
-    # Add temp save
-
-    torch.save(policy.state_dict(), f"{run_dir}/policy.pt")
-    print(f"Saved policy to {run_dir}/policy.pt")
+        # Save final policy
+        if global_step == int((nb_save/args.saved_model_freq) * args.total_timesteps):
+            torch.save(policy.state_dict(), f"{run_dir}/policy_" + str(global_step) + ".pt")
+            print(f"Saved policy to {run_dir}/policy_" + str(global_step) + ".pt")
+            nb_save += 1
 
     # Close the environment
     env.close()

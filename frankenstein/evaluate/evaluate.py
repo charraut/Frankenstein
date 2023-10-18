@@ -10,16 +10,13 @@ from minari import DataCollectorV0
 from frankenstein.utils.architecture import ActorCriticNet
 
 # Local
-from frankenstein.utils.utils import make_env
-
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--actor_timestep", type=str, default="")
     parser.add_argument("--env_id", type=str, default="HalfCheetah-v4")
     parser.add_argument("--number_episodes", type=int, default=100)
-    parser.add_argument("--actor_layers", nargs="+", type=int, default=[256, 256, 256, 256])
-    parser.add_argument("--critic_layers", nargs="+", type=int, default=[256, 256, 256, 256])
+    parser.add_argument("--actor_layers", nargs="+", type=int, default=[256, 256])
+    parser.add_argument("--critic_layers", nargs="+", type=int, default=[256, 256])
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
@@ -27,20 +24,18 @@ def parse_args():
     return args
 
 
-def evaluate(args, run_dir, act_randomly, collect_dataset):
+def evaluate(args, run_dir, act_randomly):
     # Create environment
-    if collect_dataset:
-        env = gym.make(args.env_id)
-        env = DataCollectorV0(env, record_infos=True, max_buffer_steps=100000)
-    else:
-        env = gym.vector.SyncVectorEnv([make_env(args.env_id, capture_video=False, run_dir=run_dir)])
+    env = gym.make(args.env_id, render_mode="human")
+    env.reset()    
+    env = DataCollectorV0(env, record_infos=True, max_buffer_steps=100000)
 
     if not act_randomly:
         # Metadata about the environment
-        observation_shape = env.single_observation_space.shape
-        action_shape = env.single_action_space.shape
-        action_low = torch.from_numpy(env.single_action_space.low).to(args.device)
-        action_high = torch.from_numpy(env.single_action_space.high).to(args.device)
+        observation_shape = env.observation_space.shape
+        action_shape = env.action_space.shape
+        action_low = torch.from_numpy(env.action_space.low).to(args.device)
+        action_high = torch.from_numpy(env.action_space.high).to(args.device)
 
         # Load policy
         policy = ActorCriticNet(
@@ -94,4 +89,4 @@ if __name__ == "__main__":
     run_dir = f"runs/{args_.env_id}__{run_name}__{run_time}"
 
     print(f"Starting evaluation of {run_name} on {args_.env_id} for {args_.number_episodes} episodes.")
-    evaluate(args_, run_dir, act_randomly=True, collect_dataset=True)
+    evaluate(args_, run_dir, act_randomly=False)
