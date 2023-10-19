@@ -15,6 +15,7 @@ import torch.nn.functional
 import wandb
 from tqdm import trange
 
+
 TensorBatch = List[torch.Tensor]
 
 
@@ -62,16 +63,10 @@ class ReplayBuffer:
         self._pointer = 0
         self._size = 0
 
-        self._states = torch.zeros(
-            (buffer_size, state_dim), dtype=torch.float32, device=device
-        )
-        self._actions = torch.zeros(
-            (buffer_size, action_dim), dtype=torch.float32, device=device
-        )
+        self._states = torch.zeros((buffer_size, state_dim), dtype=torch.float32, device=device)
+        self._actions = torch.zeros((buffer_size, action_dim), dtype=torch.float32, device=device)
         self._rewards = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
-        self._next_states = torch.zeros(
-            (buffer_size, state_dim), dtype=torch.float32, device=device
-        )
+        self._next_states = torch.zeros((buffer_size, state_dim), dtype=torch.float32, device=device)
         self._dones = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
         self._device = device
 
@@ -83,9 +78,7 @@ class ReplayBuffer:
             raise ValueError("Trying to load data into non-empty replay buffer")
         n_transitions = data["observations"].shape[0]
         if n_transitions > self._buffer_size:
-            raise ValueError(
-                "Replay buffer is smaller than the dataset you are trying to load!"
-            )
+            raise ValueError("Replay buffer is smaller than the dataset you are trying to load!")
         self._states[:n_transitions] = self._to_tensor(data["observations"])
         self._actions[:n_transitions] = self._to_tensor(data["actions"])
         self._rewards[:n_transitions] = self._to_tensor(data["rewards"][..., None])
@@ -228,17 +221,11 @@ class AdvantageWeightedActorCritic:
     def _actor_loss(self, states, actions):
         with torch.no_grad():
             pi_action, _ = self._actor(states)
-            v = torch.min(
-                self._critic_1(states, pi_action), self._critic_2(states, pi_action)
-            )
+            v = torch.min(self._critic_1(states, pi_action), self._critic_2(states, pi_action))
 
-            q = torch.min(
-                self._critic_1(states, actions), self._critic_2(states, actions)
-            )
+            q = torch.min(self._critic_1(states, actions), self._critic_2(states, actions))
             adv = q - v
-            weights = torch.clamp_max(
-                torch.exp(adv / self._awac_lambda), self._exp_adv_max
-            )
+            weights = torch.clamp_max(torch.exp(adv / self._awac_lambda), self._exp_adv_max)
 
         action_log_prob = self._actor.log_prob(states, actions)
         loss = (-action_log_prob * weights).mean()
@@ -302,9 +289,7 @@ class AdvantageWeightedActorCritic:
         self._critic_2.load_state_dict(state_dict["critic_2"])
 
 
-def set_seed(
-    seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False
-):
+def set_seed(seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False):
     if env is not None:
         env.seed(seed)
         env.action_space.seed(seed)
@@ -338,9 +323,7 @@ def wrap_env(
 
 
 @torch.no_grad()
-def eval_actor(
-    env: gym.Env, actor: Actor, device: str, n_episodes: int, seed: int
-) -> np.ndarray:
+def eval_actor(env: gym.Env, actor: Actor, device: str, n_episodes: int, seed: int) -> np.ndarray:
     env.seed(seed)
     actor.eval()
     episode_rewards = []
@@ -404,12 +387,8 @@ def train(config: TrainConfig):
         modify_reward(dataset, config.env_name)
 
     state_mean, state_std = compute_mean_std(dataset["observations"], eps=1e-3)
-    dataset["observations"] = normalize_states(
-        dataset["observations"], state_mean, state_std
-    )
-    dataset["next_observations"] = normalize_states(
-        dataset["next_observations"], state_mean, state_std
-    )
+    dataset["observations"] = normalize_states(dataset["observations"], state_mean, state_std)
+    dataset["next_observations"] = normalize_states(dataset["next_observations"], state_mean, state_std)
     env = wrap_env(env, state_mean=state_mean, state_std=state_std)
     replay_buffer = ReplayBuffer(
         state_dim,
@@ -460,16 +439,12 @@ def train(config: TrainConfig):
         update_result = awac.update(batch)
         wandb.log(update_result, step=t)
         if (t + 1) % config.eval_frequency == 0:
-            eval_scores = eval_actor(
-                env, actor, config.device, config.n_test_episodes, config.test_seed
-            )
+            eval_scores = eval_actor(env, actor, config.device, config.n_test_episodes, config.test_seed)
 
             wandb.log({"eval_score": eval_scores.mean()}, step=t)
             if hasattr(env, "get_normalized_score"):
                 normalized_eval_scores = env.get_normalized_score(eval_scores) * 100.0
-                wandb.log(
-                    {"d4rl_normalized_score": normalized_eval_scores.mean()}, step=t
-                )
+                wandb.log({"d4rl_normalized_score": normalized_eval_scores.mean()}, step=t)
 
             if config.checkpoints_path is not None:
                 torch.save(

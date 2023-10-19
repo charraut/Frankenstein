@@ -1,6 +1,7 @@
 # General
 import argparse
 import time
+from collections import deque
 from datetime import datetime
 
 import gymnasium as gym
@@ -52,14 +53,14 @@ def train(args, run_name, run_dir):
     )
 
     # Create vectorized environment
-    env = gym.vector.SyncVectorEnv([make_env(args.env_id)])
+    env = make_env(args.env_id)
 
     # Metadata about the environment
-    observation_shape = env.single_observation_space.shape
-    action_shape = env.single_action_space.shape
+    observation_shape = env.observation_space.shape
+    action_shape = env.action_space.shape
     action_dim = np.prod(action_shape)
-    action_low = torch.from_numpy(env.single_action_space.low).to(args.device)
-    action_high = torch.from_numpy(env.single_action_space.high).to(args.device)
+    action_low = torch.from_numpy(env.action_space.low).to(args.device)
+    action_high = torch.from_numpy(env.action_space.high).to(args.device)
 
     # Set seed for reproducibility
     if args.seed:
@@ -112,17 +113,18 @@ def train(args, run_name, run_dir):
     # Remove unnecessary variables
     del observation_shape, action_shape, action_dim
 
-    log_episodic_returns, log_episodic_lengths = [], []
+    log_episodic_returns = deque(maxlen=5)
+    log_episodic_lengths = deque(maxlen=5)
     start_time = time.process_time()
 
     # Main loop
     nb_save = 1
     for global_step in tqdm(range(args.total_timesteps)):
         if global_step < args.learning_start:
-            action = Uniform(action_low, action_high).sample().unsqueeze(0)
+            action = Uniform(action_low, action_high).sample()
         else:
             with torch.no_grad():
-                state_tensor = torch.from_numpy(state).to(args.device).float()
+                state_tensor = torch.from_numpy(state).to(args.device).float().unsqueeze(0)
                 action, _ = policy.actor(state_tensor)
 
         # Perform action
@@ -136,12 +138,13 @@ def train(args, run_name, run_dir):
         state = next_state
 
         # Log episodic return and length
-        if "final_info" in infos:
-            info = infos["final_info"][0]
-            log_episodic_returns.append(info["episode"]["r"])
-            log_episodic_lengths.append(info["episode"]["l"])
-            writer.add_scalar("rollout/episodic_return", np.mean(info["episode"]["r"][-5:]), global_step)
-            writer.add_scalar("rollout/episodic_length", np.mean(info["episode"]["l"][-5:]), global_step)
+        if terminated or truncated:
+            state, _ = env.reset()
+            log_episodic_returns.append(infos["episode"]["r"])
+            log_episodic_lengths.append(infos["episode"]["l"])
+
+            writer.add_scalar("rollout/episodic_return", np.mean(log_episodic_returns), global_step)
+            writer.add_scalar("rollout/episodic_length", np.mean(log_episodic_lengths), global_step)
 
         # Perform training step
         if global_step > args.learning_start and not (global_step % args.train_freq):
@@ -210,7 +213,7 @@ def train(args, run_name, run_dir):
             writer.add_scalar("train/next_q_value", next_q_value.mean(), global_step)
 
         # Save final policy
-        if global_step == int((nb_save/args.saved_model_freq) * args.total_timesteps):
+        if global_step == int((nb_save / args.saved_model_freq) * args.total_timesteps):
             torch.save(policy.state_dict(), f"{run_dir}/policy_" + str(global_step) + ".pt")
             print(f"Saved policy to {run_dir}/policy_" + str(global_step) + ".pt")
             nb_save += 1

@@ -9,6 +9,7 @@ from minari import DataCollectorV0
 
 from frankenstein.utils.architecture import ActorCriticNet
 
+
 # Local
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -27,7 +28,7 @@ def parse_args():
 def evaluate(args, run_dir, act_randomly):
     # Create environment
     env = gym.make(args.env_id, render_mode="human")
-    env.reset()    
+    env.reset()
     env = DataCollectorV0(env, record_infos=True, max_buffer_steps=100000)
 
     if not act_randomly:

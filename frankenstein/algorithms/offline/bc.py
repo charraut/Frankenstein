@@ -14,6 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import wandb
 
+
 TensorBatch = List[torch.Tensor]
 
 
@@ -69,9 +70,7 @@ def wrap_env(
 ) -> gym.Env:
     # PEP 8: E731 do not assign a lambda expression, use a def
     def normalize_state(state):
-        return (
-            state - state_mean
-        ) / state_std  # epsilon should be already added in std.
+        return (state - state_mean) / state_std  # epsilon should be already added in std.
 
     def scale_reward(reward):
         # Please be careful, here reward is multiplied by scale!
@@ -95,16 +94,10 @@ class ReplayBuffer:
         self._pointer = 0
         self._size = 0
 
-        self._states = torch.zeros(
-            (buffer_size, state_dim), dtype=torch.float32, device=device
-        )
-        self._actions = torch.zeros(
-            (buffer_size, action_dim), dtype=torch.float32, device=device
-        )
+        self._states = torch.zeros((buffer_size, state_dim), dtype=torch.float32, device=device)
+        self._actions = torch.zeros((buffer_size, action_dim), dtype=torch.float32, device=device)
         self._rewards = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
-        self._next_states = torch.zeros(
-            (buffer_size, state_dim), dtype=torch.float32, device=device
-        )
+        self._next_states = torch.zeros((buffer_size, state_dim), dtype=torch.float32, device=device)
         self._dones = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
         self._device = device
 
@@ -117,9 +110,7 @@ class ReplayBuffer:
             raise ValueError("Trying to load data into non-empty replay buffer")
         n_transitions = data["observations"].shape[0]
         if n_transitions > self._buffer_size:
-            raise ValueError(
-                "Replay buffer is smaller than the dataset you are trying to load!"
-            )
+            raise ValueError("Replay buffer is smaller than the dataset you are trying to load!")
         self._states[:n_transitions] = self._to_tensor(data["observations"])
         self._actions[:n_transitions] = self._to_tensor(data["actions"])
         self._rewards[:n_transitions] = self._to_tensor(data["rewards"][..., None])
@@ -145,9 +136,7 @@ class ReplayBuffer:
         raise NotImplementedError
 
 
-def set_seed(
-    seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False
-):
+def set_seed(seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False):
     if env is not None:
         env.seed(seed)
         env.action_space.seed(seed)
@@ -170,9 +159,7 @@ def wandb_init(config: dict) -> None:
 
 
 @torch.no_grad()
-def eval_actor(
-    env: gym.Env, actor: nn.Module, device: str, n_episodes: int, seed: int
-) -> np.ndarray:
+def eval_actor(env: gym.Env, actor: nn.Module, device: str, n_episodes: int, seed: int) -> np.ndarray:
     env.seed(seed)
     actor.eval()
     episode_rewards = []
@@ -312,12 +299,8 @@ def train(config: TrainConfig):
     else:
         state_mean, state_std = 0, 1
 
-    dataset["observations"] = normalize_states(
-        dataset["observations"], state_mean, state_std
-    )
-    dataset["next_observations"] = normalize_states(
-        dataset["next_observations"], state_mean, state_std
-    )
+    dataset["observations"] = normalize_states(dataset["observations"], state_mean, state_std)
+    dataset["next_observations"] = normalize_states(dataset["next_observations"], state_mean, state_std)
     env = wrap_env(env, state_mean=state_mean, state_std=state_std)
     replay_buffer = ReplayBuffer(
         state_dim,
@@ -386,7 +369,7 @@ def train(config: TrainConfig):
             print("---------------------------------------")
             print(
                 f"Evaluation over {config.n_episodes} episodes: "
-                f"{eval_score:.3f} , D4RL score: {normalized_eval_score:.3f}"
+                f"{eval_score:.3f} , D4RL score: {normalized_eval_score:.3f}",
             )
             print("---------------------------------------")
 

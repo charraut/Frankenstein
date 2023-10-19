@@ -77,7 +77,7 @@ class ActorCriticNet(nn.Module):
         # Rescale mean and shift it to match the action range.
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
 
-        return action, log_prob.squeeze()
+        return action.squeeze(), log_prob.squeeze()
 
     def critic(self, state, action):
         critic1 = self.critic_net1(torch.cat([state, action], 1)).squeeze()

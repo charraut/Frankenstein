@@ -11,23 +11,20 @@ PATH_TO_MAIN_PROJECT = str(pathlib.Path(__file__).parent.parent.parent.absolute(
 
 # Method to build Gym Env
 def make_env(env_id, capture_video=False, run_dir="."):
-    def thunk():
-        if capture_video:
-            env = gym.make(env_id, render_mode="rgb_array")
-            env = gym.wrappers.RecordVideo(
-                env=env,
-                video_folder=f"{run_dir}/videos",
-                episode_trigger=lambda x: x,
-                disable_logger=True,
-            )
-        else:
-            env = gym.make(env_id)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrappers.FlattenObservation(env)
+    if capture_video:
+        env = gym.make(env_id, render_mode="rgb_array")
+        env = gym.wrappers.RecordVideo(
+            env=env,
+            video_folder=f"{run_dir}/videos",
+            episode_trigger=lambda x: x,
+            disable_logger=True,
+        )
+    else:
+        env = gym.make(env_id)
+    env = gym.wrappers.RecordEpisodeStatistics(env)
+    env = gym.wrappers.FlattenObservation(env)
 
-        return env
-
-    return thunk
+    return env
 
 
 # Soft reset for weight & bias (perturbate)
