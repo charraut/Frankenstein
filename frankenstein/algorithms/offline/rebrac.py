@@ -516,7 +516,14 @@ def update_td3(
         metrics,
     )
     key, new_actor, new_critic, new_metrics = update_actor(
-        key, actor, new_critic, batch, actor_bc_coef, tau, normalize_q, new_metrics,
+        key,
+        actor,
+        new_critic,
+        batch,
+        actor_bc_coef,
+        tau,
+        normalize_q,
+        new_metrics,
     )
     return key, new_actor, new_critic, new_metrics
 
@@ -673,7 +680,8 @@ def main(config: Config):
         "critic": critic,
         "buffer": buffer,
         "delayed_updates": jax.numpy.equal(
-            jax.numpy.arange(config.num_updates_on_epoch) % config.policy_freq, 0,
+            jax.numpy.arange(config.num_updates_on_epoch) % config.policy_freq,
+            0,
         ).astype(int),
     }
 
