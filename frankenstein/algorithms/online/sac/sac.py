@@ -21,7 +21,7 @@ from frankenstein.utils.utils import make_env
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env_id", type=str, default="HalfCheetah-v4")
+    parser.add_argument("--env_id", type=str, default="HalfCheetah-v2")
     parser.add_argument("--total_timesteps", type=int, default=1_000_000)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--buffer_size", type=int, default=100_000)

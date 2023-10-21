@@ -9,13 +9,12 @@ import flax
 import jax
 import numpy as np
 import optax
+from brax import envs
 from flax import linen as nn
 from flax.training.train_state import TrainState
 from jax import numpy as jnp
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
-
-from frankenstein.utils.utils import make_env
 
 
 def parse_args():
@@ -33,7 +32,6 @@ def parse_args():
     parser.add_argument("--learning_start", type=int, default=25_000)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=1)
-    parser.add_argument("--saved_model_freq", type=int, default=4)
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--capture_video", action="store_true")
     parser.add_argument("--wandb", action="store_true")
@@ -118,9 +116,9 @@ class TrainState(TrainState):
 
 
 class ReplayBuffer:
-    def __init__(self, buffer_size, batch_size, observation_shape, action_shape, numpy_rng):
-        self.states = np.zeros((buffer_size, *observation_shape), dtype=np.float32)
-        self.actions = np.zeros((buffer_size, *action_shape), dtype=np.float32)
+    def __init__(self, buffer_size, batch_size, observation_size, action_size, numpy_rng):
+        self.states = np.zeros((buffer_size, observation_size), dtype=np.float32)
+        self.actions = np.zeros((buffer_size, action_size), dtype=np.float32)
         self.rewards = np.zeros((buffer_size,), dtype=np.float32)
         self.flags = np.zeros((buffer_size,), dtype=np.float32)
 
@@ -153,7 +151,7 @@ class ReplayBuffer:
 
 
 class ActorNet(nn.Module):
-    action_dim: Sequence[int]
+    action_size: Sequence[int]
     action_scale: Sequence[int]
     action_bias: Sequence[int]
 
@@ -167,8 +165,8 @@ class ActorNet(nn.Module):
         output = nn.Dense(256)(output)
         output = nn.relu(output)
 
-        mean = nn.Dense(self.action_dim)(output)
-        log_std = nn.tanh(nn.Dense(self.action_dim)(output))
+        mean = nn.Dense(self.action_size)(output)
+        log_std = nn.tanh(nn.Dense(self.action_size)(output))
 
         # Rescale log_std to ensure it is within range [log_std_min, log_std_max].
         log_std = log_std_min + 0.5 * (log_std_max - log_std_min) * (log_std + 1)
@@ -233,34 +231,33 @@ def train(args, run_name, run_dir):
     )
 
     # Create vectorized environment
-    env = make_env(args.env_id)
+    env = envs.create("halfcheetah")
 
     # Metadata about the environment
-    observation_shape = env.observation_space.shape
-    action_shape = env.action_space.shape
-    action_dim = np.prod(action_shape)
-    action_low = env.action_space.low
-    action_high = env.action_space.high
+    observation_size = env.observation_size
+    action_size = env.action_size
+    action_low = int(np.min(env.sys.actuator.ctrl_range))
+    action_high = int(np.max(env.sys.actuator.ctrl_range))
 
-    # Set seed for reproducibility
-    if args.seed:
-        numpy_rng = np.random.default_rng(args.seed)
-        state, _ = env.reset(seed=args.seed)
-    else:
-        numpy_rng = np.random.default_rng()
-        state, _ = env.reset()
+    jit_env_reset = jax.jit(env.reset)
+    jit_env_step = jax.jit(env.step)
 
     key, actor_key, critic_key = jax.random.split(jax.random.PRNGKey(args.seed), 3)
+
+    state = jit_env_reset(rng=jax.random.PRNGKey(seed=args.seed))
+    obs = state.obs
 
     # Create the networks and the optimizer
     action_scale = (action_high - action_low) / 2.0
     action_bias = (action_high + action_low) / 2.0
 
-    actor_net = ActorNet(action_dim=action_dim, action_scale=action_scale, action_bias=action_bias)
-    actor_init_params = actor_net.init(actor_key, state, key)
+    actor_net = ActorNet(action_size=action_size, action_scale=action_scale, action_bias=action_bias)
+
+    actor_init_params = actor_net.init(actor_key, obs, key)
 
     critic_net = CriticNet()
-    critic_init_params = critic_net.init(critic_key, state, env.action_space.sample())
+    random_action = jax.random.uniform(key, shape=(action_size,), minval=action_low, maxval=action_high)
+    critic_init_params = critic_net.init(critic_key, obs, random_action)
 
     optimizer = optax.adam(learning_rate=args.learning_rate)
 
@@ -288,12 +285,12 @@ def train(args, run_name, run_dir):
     alpha = args.alpha
 
     # Create the replay buffer
-    replay_buffer = ReplayBuffer(args.buffer_size, args.batch_size, observation_shape, action_shape, numpy_rng)
+    numpy_rng = np.random.default_rng(args.seed) if args.seed else np.random.default_rng()
+    replay_buffer = ReplayBuffer(args.buffer_size, args.batch_size, observation_size, action_size, numpy_rng)
 
     # Remove unnecessary variables
     del (
-        observation_shape,
-        action_shape,
+        observation_size,
         actor_key,
         critic_key,
         actor_net,
@@ -307,31 +304,35 @@ def train(args, run_name, run_dir):
     log_episodic_lengths = deque(maxlen=5)
     start_time = time.process_time()
 
+    reward_log = []
+
     # Main loop
     for global_step in tqdm(range(args.total_timesteps)):
         if global_step < args.learning_start:
-            action = numpy_rng.uniform(low=action_low, high=action_high, size=action_dim)
+            action = jax.random.uniform(key, shape=(action_size,), minval=action_low, maxval=action_high)
         else:
-            action, _, key = actor_output(actor_train_state.apply_fn, actor_train_state.params, state, key)
-            action = np.array(action)
+            action, _, key = actor_output(actor_train_state.apply_fn, actor_train_state.params, state.obs, key)
 
         # Perform action
-        next_state, reward, terminated, truncated, infos = env.step(action)
+        state = jit_env_step(state, action)
 
         # Store transition in the replay buffer
-        flag = 1.0 - terminated
-        replay_buffer.push(state, action, reward, flag)
+        flag = 1.0 - state.done
+        replay_buffer.push(obs, action, state.reward, flag)
 
-        state = next_state
+        reward_log.append(state.reward)
+
+        print(f"Step: {global_step} | Reward: {state.reward} | Done: {state.done}")
 
         # Log episodic return and length
-        if terminated or truncated:
-            state, _ = env.reset()
-            log_episodic_returns.append(infos["episode"]["r"])
-            log_episodic_lengths.append(infos["episode"]["l"])
+        if state.done:
+            log_episodic_returns.append(np.sum(reward_log))
+            log_episodic_lengths.append(len(reward_log))
 
             writer.add_scalar("rollout/episodic_return", np.mean(log_episodic_returns), global_step)
             writer.add_scalar("rollout/episodic_length", np.mean(log_episodic_lengths), global_step)
+
+            reward_log = []
 
         # Perform training step
         if global_step > args.learning_start and not (global_step % args.train_freq):
@@ -374,10 +375,11 @@ def train(args, run_name, run_dir):
                     key,
                 )
 
+                writer.add_scalar("train/actor_loss", jax.device_get(actor_loss), global_step)
+
             # Log training metrics
             writer.add_scalar("rollout/SPS", int(global_step / (time.process_time() - start_time)), global_step)
             writer.add_scalar("train/critic_loss", jax.device_get(critic_loss), global_step)
-            writer.add_scalar("train/actor_loss", jax.device_get(actor_loss), global_step)
 
     # Close the environment
     env.close()
