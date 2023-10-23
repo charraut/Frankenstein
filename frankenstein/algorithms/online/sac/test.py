@@ -2,6 +2,7 @@ import functools
 
 import jax
 from brax import envs
+from brax.training.agents.ppo import train as ppo
 from brax.training.agents.sac import train as sac
 from tqdm import tqdm
 
@@ -12,16 +13,35 @@ def train_agent(env_name, backend):
     env = envs.get_environment(env_name=env_name, backend=backend)
     state = jax.jit(env.reset)(rng=jax.random.PRNGKey(seed=0))
 
-    num_timesteps = 100_000
+    num_timesteps = 10_000_000
     episode_length = 1000
-    num_evals = 100
+    num_evals = 20
     step_interval = num_timesteps // num_evals
 
-    train_fn = functools.partial(
+    train_fn_sac = functools.partial(
         sac.train,
         num_timesteps=num_timesteps,
         episode_length=episode_length,
         num_evals=num_evals,
+    )
+
+    train_fn_ppo = functools.partial(
+        ppo.train,
+        num_timesteps=num_timesteps,
+        num_evals=num_evals,
+        reward_scaling=1,
+        episode_length=episode_length,
+        normalize_observations=True,
+        action_repeat=1,
+        unroll_length=20,
+        num_minibatches=32,
+        num_updates_per_batch=8,
+        discounting=0.95,
+        learning_rate=3e-4,
+        entropy_cost=0.001,
+        num_envs=2048,
+        batch_size=512,
+        seed=3,
     )
 
     pbar = tqdm(total=num_timesteps)
@@ -31,7 +51,7 @@ def train_agent(env_name, backend):
         pbar.update(step_interval)
         pbar.set_description(f"reward: {reward}")
 
-    make_inference_fn, params, _ = train_fn(environment=env, progress_fn=progress)
+    make_inference_fn, params, _ = train_fn_ppo(environment=env, progress_fn=progress)
     inference_fn = make_inference_fn(params)
 
     print("End training")
