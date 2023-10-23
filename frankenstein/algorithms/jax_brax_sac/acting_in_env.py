@@ -14,7 +14,11 @@ Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 
 # Functions to act in the environment (outputs the action from policy then generates an Env step() )
 def actor_step(
-    env: Env, env_state: State, policy: Policy, key: PRNGKey, extra_fields: Sequence[str] = (),
+    env: Env,
+    env_state: State,
+    policy: Policy,
+    key: PRNGKey,
+    extra_fields: Sequence[str] = (),
 ) -> Tuple[State, Transition]:
     """Collect data."""
     actions, policy_extras = policy(env_state.obs, key)
@@ -31,7 +35,12 @@ def actor_step(
 
 
 def generate_unroll(
-    env: Env, env_state: State, policy: Policy, key: PRNGKey, unroll_length: int, extra_fields: Sequence[str] = (),
+    env: Env,
+    env_state: State,
+    policy: Policy,
+    key: PRNGKey,
+    unroll_length: int,
+    extra_fields: Sequence[str] = (),
 ) -> Tuple[State, Transition]:
     """Collect trajectories of given unroll_length."""
 

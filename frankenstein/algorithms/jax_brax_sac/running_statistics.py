@@ -66,7 +66,9 @@ def init_state(nest: types.Nest) -> RunningStatisticsState:
 
 
 def _validate_batch_shapes(
-    batch: types.NestedArray, reference_sample: types.NestedArray, batch_dims: Tuple[int, ...],
+    batch: types.NestedArray,
+    reference_sample: types.NestedArray,
+    batch_dims: Tuple[int, ...],
 ) -> None:
     """Verifies shapes of the batch leaves against the reference sample.
 
@@ -151,7 +153,9 @@ def update(
         _validate_batch_shapes(batch, state.mean, batch_dims)
 
     def _compute_node_statistics(
-        mean: jnp.ndarray, summed_variance: jnp.ndarray, batch: jnp.ndarray,
+        mean: jnp.ndarray,
+        summed_variance: jnp.ndarray,
+        batch: jnp.ndarray,
     ) -> Tuple[jnp.ndarray, jnp.ndarray]:
         assert isinstance(mean, jnp.ndarray), type(mean)
         assert isinstance(summed_variance, jnp.ndarray), type(summed_variance)
@@ -193,7 +197,9 @@ def update(
 
 
 def normalize(
-    batch: types.NestedArray, mean_std: NestedMeanStd, max_abs_value: Optional[float] = None,
+    batch: types.NestedArray,
+    mean_std: NestedMeanStd,
+    max_abs_value: Optional[float] = None,
 ) -> types.NestedArray:
     """Normalizes data using running statistics."""
 

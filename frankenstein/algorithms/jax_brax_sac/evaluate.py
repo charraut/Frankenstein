@@ -52,7 +52,10 @@ class Evaluator:
         self._steps_per_unroll = episode_length * num_eval_envs
 
     def run_evaluation(
-        self, policy_params: PolicyParams, training_metrics: Metrics, aggregate_episodes: bool = True,
+        self,
+        policy_params: PolicyParams,
+        training_metrics: Metrics,
+        aggregate_episodes: bool = True,
     ) -> Metrics:
         """Run one epoch of evaluation."""
         self._key, unroll_key = jax.random.split(self._key)

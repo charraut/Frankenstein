@@ -20,7 +20,11 @@ def make_losses(sac_network: SACNetworks, reward_scaling: float, discount_factor
     parametric_action_distribution = sac_network.parametric_action_distribution
 
     def alpha_loss(
-        log_alpha: jnp.ndarray, policy_params: Params, normalizer_params: Any, transitions: Transition, key: PRNGKey,
+        log_alpha: jnp.ndarray,
+        policy_params: Params,
+        normalizer_params: Any,
+        transitions: Transition,
+        key: PRNGKey,
     ) -> jnp.ndarray:
         """Eq 18 from https://arxiv.org/pdf/1812.05905.pdf."""
         dist_params = policy_network.apply(normalizer_params, policy_params, transitions.observation)
