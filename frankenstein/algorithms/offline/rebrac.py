@@ -223,10 +223,7 @@ def qlearning_dataset(
         reward = dataset["rewards"][i].astype(np.float32)
         done_bool = bool(dataset["terminals"][i])
 
-        if use_timeouts:
-            final_timestep = dataset["timeouts"][i]
-        else:
-            final_timestep = episode_step == env._max_episode_steps - 1
+        final_timestep = dataset["timeouts"][i] if use_timeouts else episode_step == env._max_episode_steps - 1
         if (not terminate_on_end) and final_timestep:
             # Skip this transition
             episode_step = 0

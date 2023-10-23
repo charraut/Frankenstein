@@ -151,10 +151,7 @@ def train(
     env = environment
 
     # Vmap Wrapper from Brax (inside: jax.vmap(env.reset and env.step())
-    if isinstance(env, envs.Env):
-        wrap_for_training = envs.training.wrap
-    else:
-        wrap_for_training = envs_v1.wrappers.wrap_for_training
+    wrap_for_training = envs.training.wrap if isinstance(env, envs.Env) else envs_v1.wrappers.wrap_for_training
 
     rng = jax.random.PRNGKey(args.seed)
     rng, key = jax.random.split(rng)
@@ -178,7 +175,9 @@ def train(
     obs_size = env.observation_size
     action_size = env.action_size
 
-    normalize_fn = lambda x, y: x
+    def normalize_fn(x, y):
+        return x
+
     if args.normalize_observations:
         normalize_fn = normalize
 

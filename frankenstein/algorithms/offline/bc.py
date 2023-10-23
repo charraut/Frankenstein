@@ -214,7 +214,7 @@ def keep_best_trajectories(
 
 class Actor(nn.Module):
     def __init__(self, state_dim: int, action_dim: int, max_action: float):
-        super(Actor, self).__init__()
+        super().__init__()
 
         self.net = nn.Sequential(
             nn.Linear(state_dim, 256),

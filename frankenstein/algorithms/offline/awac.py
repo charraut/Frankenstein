@@ -152,10 +152,7 @@ class Actor(nn.Module):
     def act(self, state: np.ndarray, device: str) -> np.ndarray:
         state_t = torch.tensor(state[None], dtype=torch.float32, device=device)
         policy = self._get_policy(state_t)
-        if self._mlp.training:
-            action_t = policy.sample()
-        else:
-            action_t = policy.mean
+        action_t = policy.sample() if self._mlp.training else policy.mean
         action = action_t[0].cpu().numpy()
         return action
 

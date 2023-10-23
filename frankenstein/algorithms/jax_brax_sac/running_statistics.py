@@ -135,10 +135,7 @@ def update(
     # We assume the batch dimensions always go first.
     batch_dims = batch_shape[: len(batch_shape) - jax.tree_util.tree_leaves(state.mean)[0].ndim]
     batch_axis = range(len(batch_dims))
-    if weights is None:
-        step_increment = jnp.prod(jnp.array(batch_dims))
-    else:
-        step_increment = jnp.sum(weights)
+    step_increment = jnp.prod(jnp.array(batch_dims)) if weights is None else jnp.sum(weights)
     if pmap_axis_name is not None:
         step_increment = jax.lax.psum(step_increment, axis_name=pmap_axis_name)
     count = state.count + step_increment
@@ -147,9 +144,8 @@ def update(
     # compatible, arrays will be silently broadcasted resulting in incorrect
     # statistics.
     if validate_shapes:
-        if weights is not None:
-            if weights.shape != batch_dims:
-                raise ValueError(f"{weights.shape} != {batch_dims}")
+        if weights is not None and weights.shape != batch_dims:
+            raise ValueError(f"{weights.shape} != {batch_dims}")
         _validate_batch_shapes(batch, state.mean, batch_dims)
 
     def _compute_node_statistics(
