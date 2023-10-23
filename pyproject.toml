@@ -8,9 +8,9 @@ select = [
   "F",  # Pyflakes
   "E",  # pycodestyle errors
   "W",  # pycodestyle warnings
-  "C90",  # mccabe
+  #"C90",  # mccabe
   "I",  # isort
-  "N",  # pep8-naming
+  #"N",  # pep8-naming
   "UP",  # pyupgrade
   #"YTT",  # flake8-2020
   #"S",  # flake8-bandit

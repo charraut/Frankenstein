@@ -3,9 +3,11 @@ import dataclasses
 from typing import Any, Callable, Mapping, Protocol, Sequence, Tuple
 
 import flax
+import jax
+import jax.numpy as jnp
 from flax import linen
 
-from frankenstein.algorithms.jax_brax_sac.distributions import *
+from frankenstein.algorithms.jax_brax_sac.distributions import NormalTanhDistribution, ParametricDistribution
 
 
 Params = Any

@@ -175,9 +175,6 @@ def train(
     obs_size = env.observation_size
     action_size = env.action_size
 
-    def normalize_fn(x, y):
-        return x
-
     if args.normalize_observations:
         normalize_fn = normalize
 

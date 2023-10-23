@@ -1,12 +1,8 @@
 # source: https://github.com/tinkoff-ai/ReBRAC
 # https://arxiv.org/abs/2305.09836
 
-import os
-
-
-os.environ["TF_CUDNN_DETERMINISTIC"] = "1"  # For reproducibility
-
 import math
+import os
 import uuid
 from copy import deepcopy
 from dataclasses import asdict, dataclass
@@ -14,7 +10,6 @@ from functools import partial
 from typing import Any, Callable, Dict, Sequence, Tuple, Union
 
 import chex
-import d4rl  # noqa
 import flax.linen as nn
 import gym
 import jax
@@ -27,6 +22,8 @@ from flax.core import FrozenDict
 from flax.training.train_state import TrainState
 from tqdm.auto import trange
 
+
+os.environ["TF_CUDNN_DETERMINISTIC"] = "1"  # For reproducibility
 
 default_kernel_init = nn.initializers.lecun_normal()
 default_bias_init = nn.initializers.zeros
