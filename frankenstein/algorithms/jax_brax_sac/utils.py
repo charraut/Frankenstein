@@ -53,7 +53,7 @@ class Transition(NamedTuple):
     reward: jnp.ndarray
     discount: jnp.ndarray
     next_observation: jnp.ndarray
-    extras: jnp.ndarray = ()  # pytype: disable=annotation-type-mismatch  # jax-ndarray
+    extras: jnp.ndarray = ()
 
 
 @struct.dataclass
@@ -115,7 +115,7 @@ def save_params(path: str, params: Any):
 def synchronize_hosts():
     if jax.process_count() == 1:
         return
-    # Make sure all processes stay up until the end of main.
+    # Make sure all processes stay up until the end of main
     x = jnp.ones([jax.local_device_count()])
     x = jax.device_get(jax.pmap(lambda x: jax.lax.psum(x, "i"), "i")(x))
     assert x[0] == jax.device_count()

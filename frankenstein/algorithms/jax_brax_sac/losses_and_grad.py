@@ -55,7 +55,7 @@ def make_losses(sac_network: SACNetworks, reward_scaling: float, discount_factor
         )
         q_error = q_old_action - jnp.expand_dims(target_q, -1)
 
-        # Better bootstrapping for truncated episodes.
+        # Better bootstrapping for truncated episodes
         truncation = transitions.extras["state_extras"]["truncation"]
         q_error *= jnp.expand_dims(1 - truncation, -1)
 

@@ -12,7 +12,7 @@ State = Union[envs.State, envs_v1.State]
 Env = Union[envs.Env, envs_v1.Env, envs_v1.Wrapper]
 
 
-# Functions to act in the environment (outputs the action from policy then generates an Env step() )
+# Functions to act in the environment (outputs the action from policy then generates an Env step())
 def actor_step(
     env: Env,
     env_state: State,
@@ -24,7 +24,7 @@ def actor_step(
     actions, policy_extras = policy(env_state.obs, key)
     nstate = env.step(env_state, actions)
     state_extras = {x: nstate.info[x] for x in extra_fields}
-    return nstate, Transition(  # pytype: disable=wrong-arg-types  # jax-ndarray
+    return nstate, Transition(
         observation=env_state.obs,
         action=actions,
         reward=nstate.reward,

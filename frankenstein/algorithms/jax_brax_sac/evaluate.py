@@ -80,4 +80,4 @@ class Evaluator:
         self._eval_walltime = self._eval_walltime + epoch_eval_time
         metrics = {"eval/walltime": self._eval_walltime, **training_metrics, **metrics}
 
-        return metrics  # pytype: disable=bad-return-type  # jax-ndarray
+        return metrics

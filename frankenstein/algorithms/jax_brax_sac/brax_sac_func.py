@@ -129,18 +129,17 @@ def train(
 
     # TO CONDENSATE
 
-    # The number of environment steps executed for every `actor_step()` call.
+    # The number of environment steps executed for every `actor_step()` call, equals to ceil(learning_start / env_steps_per_actor_step)
     env_steps_per_actor_step = args.action_repeat * args.num_envs
-    # equals to ceil(learning_start / env_steps_per_actor_step)
+
     num_prefill_actor_steps = -(-args.learning_start // args.num_envs)
     num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
+
     assert args.total_timesteps - num_prefill_env_steps >= 0
     num_evals_after_init = max(args.num_evals - 1, 1)
 
     # The number of run_one_sac_epoch calls per run_sac_training.
-    # equals to
-    # ceil(num_timesteps - num_prefill_env_steps /
-    #      (num_evals_after_init * env_steps_per_actor_step))
+    # equals to ceil(num_timesteps - num_prefill_env_steps / (num_evals_after_init * env_steps_per_actor_step))
     num_training_steps_per_epoch = -(
         -(args.total_timesteps - num_prefill_env_steps) // (num_evals_after_init * env_steps_per_actor_step)
     )
@@ -214,8 +213,7 @@ def train(
         sample_batch_size=args.batch_size * args.grad_updates_per_step // device_count,
     )
 
-    # Create Losses and Grad functions for SAC losses
-    # Ent coef losses - could be fixed alpha
+    # Create losses and grad functions for SAC losses / Ent coef losses - could be fixed alpha
     alpha_loss, critic_loss, actor_loss = make_losses(
         sac_network=sac_network,
         reward_scaling=args.reward_scaling,
@@ -224,17 +222,17 @@ def train(
     )
 
     # Update gradients for all losses
-    alpha_update = gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+    alpha_update = gradient_update_fn( 
         alpha_loss,
         alpha_optimizer,
         pmap_axis_name=PMAP_AXIS_NAME,
     )
-    critic_update = gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+    critic_update = gradient_update_fn( 
         critic_loss,
         q_optimizer,
         pmap_axis_name=PMAP_AXIS_NAME,
     )
-    actor_update = gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
+    actor_update = gradient_update_fn(
         actor_loss,
         policy_optimizer,
         pmap_axis_name=PMAP_AXIS_NAME,
@@ -318,7 +316,8 @@ def train(
         policy = make_policy((normalizer_params, policy_params))
         env_state, transitions = actor_step(env, env_state, policy, key, extra_fields=("truncation",))
 
-        normalizer_params = update(  # Updates the running statistics with the given batch of data
+        # Updates the running statistics with the given batch of data
+        normalizer_params = update(
             normalizer_params,
             transitions.observation,
             pmap_axis_name=PMAP_AXIS_NAME,
@@ -348,8 +347,8 @@ def train(
         )
 
         buffer_state, transitions = replay_buffer.sample(buffer_state)
-        # Change the front dimension of transitions so 'update_step' is called
-        # grad_updates_per_step times by the scan.
+
+        # Change the front dimension of transitions so 'update_step' is called grad_updates_per_step times by the scan
         transitions = jax.tree_util.tree_map(
             lambda x: jnp.reshape(x, (args.grad_updates_per_step, -1) + x.shape[1:]),
             transitions,
@@ -359,7 +358,6 @@ def train(
         metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
         return training_state, env_state, buffer_state, metrics
 
-    #
     def prefill_replay_buffer(
         training_state: TrainingState,
         env_state: envs.State,
@@ -438,7 +436,7 @@ def train(
             "training/walltime": training_walltime,
             **{f"training/{name}": value for name, value in metrics.items()},
         }
-        return training_state, env_state, buffer_state, metrics  # pytype: disable=bad-return-type  # py311-upgrade
+        return training_state, env_state, buffer_state, metrics
 
     global_key, local_key = jax.random.split(rng)
     local_key = jax.random.fold_in(local_key, process_id)
@@ -484,7 +482,7 @@ def train(
         )
         progress_fn(0, metrics)
 
-    # Create and initialize the replay buffer.
+    # Create and initialize the replay buffer
     t = time.time()
     prefill_key, local_key = jax.random.split(local_key)
     prefill_keys = jax.random.split(prefill_key, local_devices_to_use)
@@ -500,7 +498,7 @@ def train(
     assert replay_size >= args.learning_start
     training_walltime = time.time() - t
 
-    # Main Training Loop
+    # Main training loop
     current_step = 0
     for _ in tqdm(range(num_evals_after_init)):
         print(f"step {current_step}")
@@ -515,17 +513,19 @@ def train(
             epoch_keys,
         )
         current_step = int(unpmap(training_state.env_steps))
-        progress_fn(current_step, training_metrics)  # Progress function for training metrics
+
+        # Progress function for training metrics
+        progress_fn(current_step, training_metrics)  
 
         # Eval and logging
         if process_id == 0:
             if checkpoint_logdir:
-                # Save current policy.
+                # Save current policy
                 params = unpmap((training_state.normalizer_params, training_state.policy_params))
                 path = f"{checkpoint_logdir}_sac_{current_step}.pkl"
                 save_params(path, params)
 
-            # Run evals.
+            # Run evals
             eval_metrics = evaluator.run_evaluation(
                 unpmap((training_state.normalizer_params, training_state.policy_params)),
                 training_metrics,
@@ -537,7 +537,7 @@ def train(
 
     params = unpmap((training_state.normalizer_params, training_state.policy_params))
 
-    # If there was no mistakes the training_state should still be identical on all devices.
+    # If there was no mistakes the training_state should still be identical on all devices
     assert_is_replicated(training_state)
     print(f"total steps: {total_steps}")
     synchronize_hosts()

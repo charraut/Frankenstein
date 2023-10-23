@@ -59,8 +59,7 @@ def init_state(nest: types.Nest) -> RunningStatisticsState:
         count=jnp.zeros((), dtype=dtype),
         mean=_zeros_like(nest, dtype=dtype),
         summed_variance=_zeros_like(nest, dtype=dtype),
-        # Initialize with ones to make sure normalization works correctly
-        # in the initial state.
+        # Initialize with ones to make sure normalization works correctly in the initial state
         std=_ones_like(nest, dtype=dtype),
     )
 

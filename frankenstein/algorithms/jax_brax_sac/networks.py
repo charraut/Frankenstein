@@ -94,7 +94,7 @@ class MLP(linen.Module):
         return hidden
 
 
-# Builds the Policy  Network
+# Builds the policy network
 def make_policy_network(
     param_size: int,
     obs_size: int,
@@ -117,7 +117,7 @@ def make_policy_network(
     return FeedForwardNetwork(init=lambda key: policy_module.init(key, dummy_obs), apply=apply)
 
 
-# Builds the Critic Network
+# Builds the critic Network
 def make_q_network(
     obs_size: int,
     action_size: int,
@@ -155,7 +155,7 @@ def make_q_network(
     return FeedForwardNetwork(init=lambda key: q_module.init(key, dummy_obs, dummy_action), apply=apply)
 
 
-## Buils the SAC Network (action dist, pi network, q network)
+# Builds the SAC network (action dist, pi network, q network)
 def make_sac_networks(
     observation_size: int,
     action_size: int,

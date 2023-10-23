@@ -143,14 +143,13 @@ class QueueBase(ReplayBuffer[ReplayBufferState, Sample], Generic[Sample]):
         update = self._flatten_fn(samples)
         data = buffer_state.data
 
-        # If needed, roll the buffer to make sure there's enough space to fit
-        # `update` after the current position.
+        # If needed, roll the buffer to make sure there's enough space to fit `update` after the current position
         position = buffer_state.insert_position
         roll = jnp.minimum(0, len(data) - position - len(update))
         data = jax.lax.cond(roll, lambda: jnp.roll(data, roll, axis=0), lambda: data)
         position = position + roll
 
-        # Update the buffer and the control numbers.
+        # Update the buffer and the control numbers
         data = jax.lax.dynamic_update_slice_in_dim(data, update, position, axis=0)
         position = (position + len(update)) % (len(data) + 1)
         sample_position = jnp.maximum(0, buffer_state.sample_position + roll)
@@ -165,9 +164,7 @@ class QueueBase(ReplayBuffer[ReplayBufferState, Sample], Generic[Sample]):
         raise NotImplementedError(f"{self.__class__}.sample() is not implemented.")
 
     def size(self, buffer_state: ReplayBufferState) -> int:
-        return (
-            buffer_state.insert_position - buffer_state.sample_position
-        )  # pytype: disable=bad-return-type  # jax-ndarray
+        return buffer_state.insert_position - buffer_state.sample_position
 
 
 class Queue(QueueBase[Sample], Generic[Sample]):
@@ -223,13 +220,12 @@ class Queue(QueueBase[Sample], Generic[Sample]):
                 f"not match the shape of the buffer state ({buffer_state.data.shape})",
             )
 
-        # Note that this may be out of bound, but the operations below would still
-        # work fine as they take this number modulo the buffer size.
+        # Note that this may be out of bound, but the operations below would still work fine as they take this number modulo the buffer size
         idx = (jnp.arange(self._sample_batch_size) + buffer_state.sample_position) % buffer_state.insert_position
 
         flat_batch = jnp.take(buffer_state.data, idx, axis=0, mode="wrap")
 
-        # Remove the sampled batch from the queue.
+        # Remove the sampled batch from the queue
         sample_position = buffer_state.sample_position + self._sample_batch_size
         if self._cyclic:
             sample_position = sample_position % buffer_state.insert_position
@@ -239,11 +235,9 @@ class Queue(QueueBase[Sample], Generic[Sample]):
 
     def size(self, buffer_state: ReplayBufferState) -> int:
         if self._cyclic:
-            return buffer_state.insert_position  # pytype: disable=bad-return-type  # jax-ndarray
+            return buffer_state.insert_position 
         else:
-            return (
-                buffer_state.insert_position - buffer_state.sample_position
-            )  # pytype: disable=bad-return-type  # jax-ndarray
+            return buffer_state.insert_position - buffer_state.sample_position
 
 
 class UniformSamplingQueue(QueueBase[Sample], Generic[Sample]):
@@ -300,16 +294,15 @@ class PmapWrapper(ReplayBuffer[State, Sample]):
         keys = jax.random.split(key, self._num_devices)
         return jax.pmap(self._buffer.init)(keys)
 
-    # NB: In multi-hosts setups, every host is expected to give a different batch.
+    # NB: In multi-hosts setups, every host is expected to give a different batch
     def insert(self, buffer_state: State, samples: Sample) -> State:
         self._buffer.check_can_insert(buffer_state, samples, self._num_devices)
         samples = jax.tree_util.tree_map(lambda x: jnp.reshape(x, (-1, self._num_devices) + x.shape[1:]), samples)
-        # This is to enforce we're gonna iterate on the start of the batch before
-        # the end of the batch.
+        # This is to enforce we're gonna iterate on the start of the batch before the end of the batch
         samples = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), samples)
         return jax.pmap(self._buffer.insert_internal)(buffer_state, samples)
 
-    # NB: In multi-hosts setups, every host will get a different batch.
+    # NB: In multi-hosts setups, every host will get a different batch
     def sample(self, buffer_state: State) -> Tuple[State, Sample]:
         self._buffer.check_can_sample(buffer_state, self._num_devices)
         buffer_state, samples = jax.pmap(self._buffer.sample_internal)(buffer_state)
@@ -373,8 +366,7 @@ class PjitWrapper(ReplayBuffer[State, Sample]):
                 lambda x: jnp.reshape(x, (-1, self._num_devices) + x.shape[1:]),
                 samples,
             )
-            # This is to enforce we're gonna iterate on the start of the batch before
-            # the end of the batch.
+            # This is to enforce we're gonna iterate on the start of the batch before the end of the batch
             samples = jax.tree_util.tree_map(lambda x: jnp.swapaxes(x, 0, 1), samples)
             return jax.vmap(self._buffer.insert_internal)(buffer_state, samples)
 
@@ -385,7 +377,7 @@ class PjitWrapper(ReplayBuffer[State, Sample]):
             return buffer_state, samples
 
         def size(buffer_state: State) -> int:
-            return jnp.sum(jax.vmap(self._buffer.size)(buffer_state))  # pytype: disable=bad-return-type  # jnp-type
+            return jnp.sum(jax.vmap(self._buffer.size)(buffer_state))
 
         partition_spec = jax.sharding.PartitionSpec(
             (axis_names),
