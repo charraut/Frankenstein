@@ -1,28 +1,46 @@
+import argparse
 import functools
 import time
-from typing import Any, Callable, Dict, Optional, Tuple, Union
-from absl import logging
-from brax import base  # brax primitives 
-from brax import envs  # brax environment
-from brax.v1 import envs as envs_v1 # mujoco & basis environments
-import argparse
+from typing import Callable, Optional, Tuple, Union
+
 import jax
 import jax.numpy as jnp
 import optax
-from tqdm import tqdm
+from brax import (
+    base,  # brax primitives
+    envs,  # brax environment
+)
+from brax.v1 import envs as envs_v1  # mujoco & basis environments
 from tensorboardX import SummaryWriter
-import os 
+from tqdm import tqdm
 
-# Local modules 
-from frankenstein.algorithms.jax_brax_sac.utils import Array, TrainingState, Transition, Metrics, PMAP_AXIS_NAME, unpmap
-from frankenstein.algorithms.jax_brax_sac.utils import save_params, assert_is_replicated, synchronize_hosts, handle_devices
-from frankenstein.algorithms.jax_brax_sac.replay_buffers import *
-from frankenstein.algorithms.jax_brax_sac.distributions import *
-from frankenstein.algorithms.jax_brax_sac.networks import SACNetworks, make_sac_networks, make_inference_fn, Params
 from frankenstein.algorithms.jax_brax_sac.acting_in_env import actor_step
-from frankenstein.algorithms.jax_brax_sac.losses_and_grad import make_losses, gradient_update_fn
+from frankenstein.algorithms.jax_brax_sac.distributions import *
 from frankenstein.algorithms.jax_brax_sac.evaluate import Evaluator
-from frankenstein.algorithms.jax_brax_sac.running_statistics import normalize, RunningStatisticsState, init_state, update
+from frankenstein.algorithms.jax_brax_sac.losses_and_grad import gradient_update_fn, make_losses
+from frankenstein.algorithms.jax_brax_sac.networks import Params, SACNetworks, make_inference_fn, make_sac_networks
+from frankenstein.algorithms.jax_brax_sac.replay_buffers import *
+from frankenstein.algorithms.jax_brax_sac.running_statistics import (
+    RunningStatisticsState,
+    init_state,
+    normalize,
+    update,
+)
+
+# Local modules
+from frankenstein.algorithms.jax_brax_sac.utils import (
+    PMAP_AXIS_NAME,
+    Array,
+    Metrics,
+    TrainingState,
+    Transition,
+    assert_is_replicated,
+    handle_devices,
+    save_params,
+    synchronize_hosts,
+    unpmap,
+)
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -48,11 +66,12 @@ def parse_args():
     parser.add_argument("--actor_layers", type=Sequence[int], default=(256, 256))
     parser.add_argument("--critic_layers", type=Sequence[int], default=(256, 256))
     parser.add_argument("--tau", type=float, default=0.005)
-    parser.add_argument("--alpha", type=float, default=0.2) # If ent coef fixed - NOT USED
-    parser.add_argument("--saved_model_freq", type=int, default=4) # - NOT USED
+    parser.add_argument("--alpha", type=float, default=0.2)  # If ent coef fixed - NOT USED
+    parser.add_argument("--saved_model_freq", type=int, default=4)  # - NOT USED
     args = parser.parse_args()
 
     return args
+
 
 # TO REMOVE OTHER PLACE
 def init_training_state(
@@ -90,6 +109,7 @@ def init_training_state(
     )
     return jax.device_put_replicated(training_state, jax.local_devices()[:local_devices_to_use])
 
+
 def train(
     environment: Union[envs_v1.Env, envs.Env],
     args,
@@ -99,7 +119,7 @@ def train(
 ):
     """SAC training."""
 
-    # Devices handling 
+    # Devices handling
     process_id, local_devices_to_use, device_count = handle_devices(args.max_devices_per_host)
 
     # TO CONDENSATE
@@ -124,7 +144,7 @@ def train(
 
     # Environment
     env = environment
-    
+
     # Vmap Wrapper from Brax (inside: jax.vmap(env.reset and env.step())
     if isinstance(env, envs.Env):
         wrap_for_training = envs.training.wrap
@@ -158,12 +178,13 @@ def train(
         normalize_fn = normalize
 
     # Builds the SAC networks
-    sac_network = make_sac_networks(observation_size=obs_size,
-                                    action_size=action_size,
-                                    preprocess_observations_fn=normalize_fn, 
-                                    actor_layers=args.actor_layers,
-                                    critic_layers=args.critic_layers
-                                    )
+    sac_network = make_sac_networks(
+        observation_size=obs_size,
+        action_size=action_size,
+        preprocess_observations_fn=normalize_fn,
+        actor_layers=args.actor_layers,
+        critic_layers=args.critic_layers,
+    )
 
     # Builds the FWD function of the SAC Policy
     make_policy = make_inference_fn(sac_network)
@@ -173,7 +194,7 @@ def train(
     policy_optimizer = optax.adam(learning_rate=args.learning_rate)
     q_optimizer = optax.adam(learning_rate=args.learning_rate)
 
-    # Dummy transition (s,a,r,s') to initiate the replay buffer 
+    # Dummy transition (s,a,r,s') to initiate the replay buffer
     dummy_obs = jnp.zeros((obs_size,))
     dummy_action = jnp.zeros((action_size,))
     dummy_transition = Transition(
@@ -183,9 +204,9 @@ def train(
         discount=0.0,
         next_observation=dummy_obs,
         extras={"state_extras": {"truncation": 0.0}, "policy_extras": {}},
-    )  
+    )
 
-    # Create Replay Buffer 
+    # Create Replay Buffer
     replay_buffer = UniformSamplingQueue(
         buffer_size=args.buffer_size // device_count,
         dummy_data_sample=dummy_transition,
@@ -195,25 +216,28 @@ def train(
     # Create Losses and Grad functions for SAC losses
     # Ent coef losses - could be fixed alpha
     alpha_loss, critic_loss, actor_loss = make_losses(
-        sac_network=sac_network, reward_scaling=args.reward_scaling, discount_factor=args.discount_factor, action_size=action_size
+        sac_network=sac_network,
+        reward_scaling=args.reward_scaling,
+        discount_factor=args.discount_factor,
+        action_size=action_size,
     )
 
-    # Update gradients for all losses 
+    # Update gradients for all losses
     alpha_update = gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-        alpha_loss, alpha_optimizer, pmap_axis_name=PMAP_AXIS_NAME
+        alpha_loss, alpha_optimizer, pmap_axis_name=PMAP_AXIS_NAME,
     )
     critic_update = gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-        critic_loss, q_optimizer, pmap_axis_name=PMAP_AXIS_NAME
+        critic_loss, q_optimizer, pmap_axis_name=PMAP_AXIS_NAME,
     )
     actor_update = gradient_update_fn(  # pytype: disable=wrong-arg-types  # jax-ndarray
-        actor_loss, policy_optimizer, pmap_axis_name=PMAP_AXIS_NAME
+        actor_loss, policy_optimizer, pmap_axis_name=PMAP_AXIS_NAME,
     )
 
-    # TO CONDENSTATE ALL FUNCTIONS BELOW 
+    # TO CONDENSTATE ALL FUNCTIONS BELOW
 
     # One step of stochastic gradient descend for all params (alpha, policy params, q params)
     def sgd_step(
-        carry: Tuple[TrainingState, PRNGKey], transitions: Transition
+        carry: Tuple[TrainingState, PRNGKey], transitions: Transition,
     ) -> Tuple[Tuple[TrainingState, PRNGKey], Metrics]:
         training_state, key = carry
 
@@ -249,7 +273,7 @@ def train(
         )
 
         new_target_q_params = jax.tree_util.tree_map(
-            lambda x, y: x * (1 - args.tau) + y * args.tau, training_state.target_q_params, q_params
+            lambda x, y: x * (1 - args.tau) + y * args.tau, training_state.target_q_params, q_params,
         )
 
         metrics = {
@@ -273,7 +297,7 @@ def train(
         )
         return (new_training_state, key), metrics
 
-    # Collect rollout equivalent 
+    # Collect rollout equivalent
     def get_experience(
         normalizer_params: RunningStatisticsState,
         policy_params: Params,
@@ -284,49 +308,49 @@ def train(
         policy = make_policy((normalizer_params, policy_params))
         env_state, transitions = actor_step(env, env_state, policy, key, extra_fields=("truncation",))
 
-        normalizer_params = update( # Updates the running statistics with the given batch of data
-            normalizer_params, transitions.observation, pmap_axis_name=PMAP_AXIS_NAME
+        normalizer_params = update(  # Updates the running statistics with the given batch of data
+            normalizer_params, transitions.observation, pmap_axis_name=PMAP_AXIS_NAME,
         )
 
         buffer_state = replay_buffer.insert(buffer_state, transitions)
         return normalizer_params, env_state, buffer_state
 
-    # Training step --> One step collection (s,a,r,s') + one Sgd step 
+    # Training step --> One step collection (s,a,r,s') + one Sgd step
     def training_step(
-        training_state: TrainingState, env_state: envs.State, buffer_state: ReplayBufferState, key: PRNGKey
+        training_state: TrainingState, env_state: envs.State, buffer_state: ReplayBufferState, key: PRNGKey,
     ) -> Tuple[TrainingState, Union[envs.State, envs_v1.State], ReplayBufferState, Metrics]:
         experience_key, training_key = jax.random.split(key)
         normalizer_params, env_state, buffer_state = get_experience(
-            training_state.normalizer_params, training_state.policy_params, env_state, buffer_state, experience_key
+            training_state.normalizer_params, training_state.policy_params, env_state, buffer_state, experience_key,
         )
         training_state = training_state.replace(
-            normalizer_params=normalizer_params, env_steps=training_state.env_steps + env_steps_per_actor_step
+            normalizer_params=normalizer_params, env_steps=training_state.env_steps + env_steps_per_actor_step,
         )
 
         buffer_state, transitions = replay_buffer.sample(buffer_state)
         # Change the front dimension of transitions so 'update_step' is called
         # grad_updates_per_step times by the scan.
         transitions = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (args.grad_updates_per_step, -1) + x.shape[1:]), transitions
+            lambda x: jnp.reshape(x, (args.grad_updates_per_step, -1) + x.shape[1:]), transitions,
         )
         (training_state, _), metrics = jax.lax.scan(sgd_step, (training_state, training_key), transitions)
 
         metrics["buffer_current_size"] = replay_buffer.size(buffer_state)
         return training_state, env_state, buffer_state, metrics
 
-    # 
+    #
     def prefill_replay_buffer(
-        training_state: TrainingState, env_state: envs.State, buffer_state: ReplayBufferState, key: PRNGKey
+        training_state: TrainingState, env_state: envs.State, buffer_state: ReplayBufferState, key: PRNGKey,
     ) -> Tuple[TrainingState, envs.State, ReplayBufferState, PRNGKey]:
         def f(carry, unused):
             del unused
             training_state, env_state, buffer_state, key = carry
             key, new_key = jax.random.split(key)
             new_normalizer_params, env_state, buffer_state = get_experience(
-                training_state.normalizer_params, training_state.policy_params, env_state, buffer_state, key
+                training_state.normalizer_params, training_state.policy_params, env_state, buffer_state, key,
             )
             new_training_state = training_state.replace(
-                normalizer_params=new_normalizer_params, env_steps=training_state.env_steps + env_steps_per_actor_step
+                normalizer_params=new_normalizer_params, env_steps=training_state.env_steps + env_steps_per_actor_step,
             )
             return (new_training_state, env_state, buffer_state, new_key), ()
 
@@ -334,9 +358,9 @@ def train(
 
     prefill_replay_buffer = jax.pmap(prefill_replay_buffer, axis_name=PMAP_AXIS_NAME)
 
-    # 
+    #
     def training_epoch(
-        training_state: TrainingState, env_state: envs.State, buffer_state: ReplayBufferState, key: PRNGKey
+        training_state: TrainingState, env_state: envs.State, buffer_state: ReplayBufferState, key: PRNGKey,
     ) -> Tuple[TrainingState, envs.State, ReplayBufferState, Metrics]:
         def f(carry, unused_t):
             ts, es, bs, k = carry
@@ -345,22 +369,22 @@ def train(
             return (ts, es, bs, new_key), metrics
 
         (training_state, env_state, buffer_state, key), metrics = jax.lax.scan(
-            f, (training_state, env_state, buffer_state, key), (), length=num_training_steps_per_epoch
+            f, (training_state, env_state, buffer_state, key), (), length=num_training_steps_per_epoch,
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         return training_state, env_state, buffer_state, metrics
 
-    # Compiled XLA for parallelism GPU cores 
+    # Compiled XLA for parallelism GPU cores
     training_epoch = jax.pmap(training_epoch, axis_name=PMAP_AXIS_NAME)
 
     # Note that this is NOT a pure jittable method --> Main training epoch function (in the loop)
     def training_epoch_with_timing(
-        training_state: TrainingState, env_state: envs.State, buffer_state: ReplayBufferState, key: PRNGKey
+        training_state: TrainingState, env_state: envs.State, buffer_state: ReplayBufferState, key: PRNGKey,
     ) -> Tuple[TrainingState, envs.State, ReplayBufferState, Metrics]:
         nonlocal training_walltime
         t = time.time()
         (training_state, env_state, buffer_state, metrics) = training_epoch(
-            training_state, env_state, buffer_state, key
+            training_state, env_state, buffer_state, key,
         )
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
@@ -407,14 +431,14 @@ def train(
         num_eval_envs=args.num_eval_envs,
         episode_length=args.episode_length,
         action_repeat=args.action_repeat,
-        key=eval_key
+        key=eval_key,
     )
 
     # Run initial eval
     metrics = {}
     if process_id == 0 and args.num_evals > 1:
         metrics = evaluator.run_evaluation(
-            unpmap((training_state.normalizer_params, training_state.policy_params)), training_metrics={}
+            unpmap((training_state.normalizer_params, training_state.policy_params)), training_metrics={},
         )
         progress_fn(0, metrics)
 
@@ -423,7 +447,7 @@ def train(
     prefill_key, local_key = jax.random.split(local_key)
     prefill_keys = jax.random.split(prefill_key, local_devices_to_use)
     training_state, env_state, buffer_state, _ = prefill_replay_buffer(
-        training_state, env_state, buffer_state, prefill_keys
+        training_state, env_state, buffer_state, prefill_keys,
     )
 
     replay_size = jnp.sum(jax.vmap(replay_buffer.size)(buffer_state)) * jax.process_count()
@@ -431,7 +455,7 @@ def train(
     assert replay_size >= args.learning_start
     training_walltime = time.time() - t
 
-    # Main Training Loop 
+    # Main Training Loop
     current_step = 0
     for _ in tqdm(range(num_evals_after_init)):
         print(f"step {current_step}")
@@ -440,10 +464,10 @@ def train(
         epoch_key, local_key = jax.random.split(local_key)
         epoch_keys = jax.random.split(epoch_key, local_devices_to_use)
         (training_state, env_state, buffer_state, training_metrics) = training_epoch_with_timing(
-            training_state, env_state, buffer_state, epoch_keys
+            training_state, env_state, buffer_state, epoch_keys,
         )
         current_step = int(unpmap(training_state.env_steps))
-        progress_fn(current_step, training_metrics) # Progress function for training metrics 
+        progress_fn(current_step, training_metrics)  # Progress function for training metrics
 
         # Eval and logging
         if process_id == 0:
@@ -455,7 +479,7 @@ def train(
 
             # Run evals.
             eval_metrics = evaluator.run_evaluation(
-                unpmap((training_state.normalizer_params, training_state.policy_params)), training_metrics
+                unpmap((training_state.normalizer_params, training_state.policy_params)), training_metrics,
             )
             progress_fn(current_step, eval_metrics)
 
@@ -472,8 +496,7 @@ def train(
 
 
 if __name__ == "__main__":
-
-    #os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+    # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
     args_ = parse_args()
     env = envs.get_environment(env_name=args_.env_name, backend=args_.backend)
@@ -484,6 +507,7 @@ if __name__ == "__main__":
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args_).items()])),
     )
+
     def progress(num_steps, metrics):
         for key in metrics:
             print(f"{key}: {metrics[key]}")
