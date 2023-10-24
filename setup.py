@@ -1,8 +1,19 @@
 from setuptools import find_packages, setup
 
+# Function to open and read the file for the requirements
+def read_requirements():
+    with open("requirements.txt") as req:
+        content = req.read()
+        requirements = content.split("\n")
+
+    return requirements
+
 
 setup(
     name="frankenstein",
-    install_requires=[],
+    version="0.1",
+    description="",
     packages=find_packages(),
+    install_requires=read_requirements(),
+    python_requires=">=3.9",
 )
