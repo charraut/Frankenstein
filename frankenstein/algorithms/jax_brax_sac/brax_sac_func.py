@@ -1,7 +1,7 @@
 import argparse
 import functools
 import time
-from typing import TYPE_CHECKING, Callable, Optional, Sequence, Tuple, Union
+from typing import Callable, Optional, Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -40,12 +40,8 @@ from frankenstein.algorithms.jax_brax_sac.utils import (
     unpmap,
 )
 
-
-if TYPE_CHECKING:
-    from jax.random import PRNGKey
-
-    from frankenstein.algorithms.jax_brax_sac.replay_buffers import ReplayBufferState
-
+from jax.random import PRNGKey
+from frankenstein.algorithms.jax_brax_sac.replay_buffers import ReplayBufferState
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -56,7 +52,7 @@ def parse_args():
     parser.add_argument("--num_envs", type=int, default=128)
     parser.add_argument("--num_eval_envs", type=int, default=128)
     parser.add_argument("--num_evals", type=int, default=20)
-    parser.add_argument("--deterministic_eval", type=bool, default=False)
+    parser.add_argument("--deterministic_eval", type=bool, default=True)
     parser.add_argument("--action_repeat", type=int, default=1)
     parser.add_argument("--reward_scaling", type=int, default=1)
     parser.add_argument("--normalize_observations", type=bool, default=True)
@@ -522,7 +518,7 @@ def train(
             if checkpoint_logdir:
                 # Save current policy
                 params = unpmap((training_state.normalizer_params, training_state.policy_params))
-                path = f"{checkpoint_logdir}_sac_{current_step}.pkl"
+                path = f"{checkpoint_logdir}/model_{current_step}.pkl"
                 save_params(path, params)
 
             # Run evals
@@ -548,10 +544,14 @@ if __name__ == "__main__":
     # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
     args_ = parse_args()
+
+    exp_name = 'SAC'
+    path_to_save_model = f"runs/{args_.env_name}/{exp_name}"
+    
     env = envs.get_environment(env_name=args_.env_name, backend=args_.backend)
 
     # Metrics progression of training
-    writer = SummaryWriter(f"runs/{args_.env_name}_sac_valentin_tu_pues_des_oreilles{int(time.time())}")
+    writer = SummaryWriter(path_to_save_model)
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args_).items()])),
@@ -566,5 +566,6 @@ if __name__ == "__main__":
     train(
         environment=env,
         args=args_,
+        checkpoint_logdir=path_to_save_model,
         progress_fn=progress,
     )
