@@ -79,6 +79,6 @@ class Evaluator:
         metrics["eval/sps"] = self._steps_per_unroll / epoch_eval_time
         self._eval_walltime = self._eval_walltime + epoch_eval_time
         metrics["eval/walltime"] = self._eval_walltime
-        metrics = {**training_metrics, **metrics} 
+        metrics = {**training_metrics, **metrics}
 
         return metrics

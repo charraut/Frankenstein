@@ -12,6 +12,7 @@ from brax import (
 )
 from brax.v1 import envs as envs_v1  # mujoco & basis environments
 from jax.random import PRNGKey
+from tensorboardX import SummaryWriter
 
 from frankenstein.brax.acting_in_env import actor_step
 from frankenstein.brax.evaluate import Evaluator
@@ -38,7 +39,7 @@ from frankenstein.brax.utils import (
     synchronize_hosts,
     unpmap,
 )
-from tensorboardX import SummaryWriter
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -516,8 +517,12 @@ def train(
             logging_step_done = perf_counter() - time_logging_step
 
             training_epoch_done = perf_counter() - time_training_epoch
-            print(f"- step : {training_step_done:.2f}s - ({training_metrics['training/sps']:.2f} steps/s) - ratio: {training_step_done / training_epoch_done:.2f}")
-            print(f"- eval : {eval_step_done:.2f}s - ({eval_metrics['eval/sps']:.2f} steps/s) - ratio: {eval_step_done / training_epoch_done:.2f}")
+            print(
+                f"- step : {training_step_done:.2f}s - ({training_metrics['training/sps']:.2f} steps/s) - ratio: {training_step_done / training_epoch_done:.2f}",
+            )
+            print(
+                f"- eval : {eval_step_done:.2f}s - ({eval_metrics['eval/sps']:.2f} steps/s) - ratio: {eval_step_done / training_epoch_done:.2f}",
+            )
             print(f"- logs : {logging_step_done:.2f}s - ratio: {logging_step_done / training_epoch_done:.2f}")
             print(f"- total: {training_epoch_done:.2f}s - reward: {eval_metrics['eval/episode_reward']:.2f}")
             print()
@@ -553,6 +558,5 @@ if __name__ == "__main__":
     def progress(num_steps, metrics):
         for key in metrics:
             writer.add_scalar(key, metrics[key], num_steps)
-                
 
     train(environment=env, args=args_, progress_fn=progress)
