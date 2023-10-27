@@ -1,4 +1,4 @@
-import time
+from time import perf_counter
 from typing import Callable
 
 import jax
@@ -60,11 +60,11 @@ class Evaluator:
         """Run one epoch of evaluation."""
         self._key, unroll_key = jax.random.split(self._key)
 
-        t = time.time()
+        t = perf_counter()
         eval_state = self._generate_eval_unroll(policy_params, unroll_key)
         eval_metrics = eval_state.info["eval_metrics"]
         eval_metrics.active_episodes.block_until_ready()
-        epoch_eval_time = time.time() - t
+        epoch_eval_time = perf_counter() - t
         metrics = {}
         for fn in [np.mean, np.std]:
             suffix = "_std" if fn == np.std else ""
@@ -78,6 +78,7 @@ class Evaluator:
         metrics["eval/epoch_eval_time"] = epoch_eval_time
         metrics["eval/sps"] = self._steps_per_unroll / epoch_eval_time
         self._eval_walltime = self._eval_walltime + epoch_eval_time
-        metrics = {"eval/walltime": self._eval_walltime, **training_metrics, **metrics}
+        metrics["eval/walltime"] = self._eval_walltime
+        metrics = {**training_metrics, **metrics} 
 
         return metrics

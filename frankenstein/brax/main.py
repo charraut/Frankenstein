@@ -1,6 +1,6 @@
 import argparse
 import functools
-import time
+from time import perf_counter
 from typing import Callable, Optional, Sequence, Tuple, Union
 
 import jax
@@ -42,30 +42,39 @@ from frankenstein.brax.utils import (
 
 def parse_args():
     parser = argparse.ArgumentParser()
+
+    # Environment
     parser.add_argument("--env_name", type=str, default="halfcheetah")
-    parser.add_argument("--backend", type=str, default="spring")
-    parser.add_argument("--total_timesteps", type=int, default=100_000)
+    parser.add_argument("--backend", type=str, default="generalized")
+    # Training
+    parser.add_argument("--total_timesteps", type=int, default=1_000_000)
     parser.add_argument("--episode_length", type=int, default=1_000)
-    parser.add_argument("--num_envs", type=int, default=128)
-    parser.add_argument("--num_eval_envs", type=int, default=32)
-    parser.add_argument("--num_evals", type=int, default=5)
+    parser.add_argument("--num_envs", type=int, default=1024)
+    parser.add_argument("--grad_updates_per_step", type=int, default=512)
+    parser.add_argument("--batch_size", type=int, default=512)
+    # Evaluation
+    parser.add_argument("--num_eval_envs", type=int, default=128)
+    parser.add_argument("--num_evals", type=int, default=10)
+    # SAC
+    parser.add_argument("--discount_factor", type=float, default=0.99)
+    parser.add_argument("--learning_rate", type=float, default=3e-4)
+    parser.add_argument("--tau", type=float, default=0.005)
+    parser.add_argument("--alpha", type=float, default=0.2)  # If ent coef fixed - NOT USED
+    # Network
+    parser.add_argument("--actor_layers", type=Sequence[int], default=(256, 256))
+    parser.add_argument("--critic_layers", type=Sequence[int], default=(256, 256))
+    # Replay Buffer
+    parser.add_argument("--buffer_size", type=int, default=500_000)
+    parser.add_argument("--learning_start", type=int, default=10000)
+    # Misc
     parser.add_argument("--deterministic_eval", type=bool, default=True)
     parser.add_argument("--action_repeat", type=int, default=1)
     parser.add_argument("--reward_scaling", type=int, default=1)
     parser.add_argument("--normalize_observations", type=bool, default=True)
-    parser.add_argument("--discount_factor", type=float, default=0.99)
-    parser.add_argument("--learning_rate", type=float, default=3e-4)
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--grad_updates_per_step", type=int, default=64)
-    parser.add_argument("--max_devices_per_host", type=int, default=1)
-    parser.add_argument("--buffer_size", type=int, default=100_000)
-    parser.add_argument("--learning_start", type=int, default=10000)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--actor_layers", type=Sequence[int], default=(256, 256))
-    parser.add_argument("--critic_layers", type=Sequence[int], default=(256, 256))
-    parser.add_argument("--tau", type=float, default=0.005)
-    parser.add_argument("--alpha", type=float, default=0.2)  # If ent coef fixed - NOT USED
     parser.add_argument("--saved_model_freq", type=int, default=4)  # - NOT USED
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--max_devices_per_host", type=int, default=1)
+
     args = parser.parse_args()
 
     return args
@@ -116,28 +125,32 @@ def train(
     randomization_fn: Optional[Callable[[base.System, jnp.ndarray], Tuple[base.System, base.System]]] = None,
 ):
     """SAC training."""
+    t_pre_training = perf_counter()
+
+    # Print parameters
+    print("parameters".center(50, "="))
+    for key, value in vars(args).items():
+        print(f"{key}: {value}")
 
     # Devices handling
     process_id, local_devices_to_use, device_count = handle_devices(args.max_devices_per_host)
 
-    # TO CONDENSATE
+    # Print all infos about devices
+    print("device".center(50, "="))
+    print(f"process_id: {process_id}")
+    print(f"local_devices_to_use: {local_devices_to_use}")
+    print(f"device_count: {device_count}")
+    print(f"jax.process_count(): {jax.process_count()}")
+    print(f"jax.local_device_count(): {jax.local_device_count()}")
+    print(f"jax.process_index(): {jax.process_index()}")
+    print(f"jax.default_backend(): {jax.default_backend()}")
+    print(f"jax.local_devices(): {jax.local_devices()}")
 
     # The number of environment steps executed for every `actor_step()` call, equals to ceil(learning_start / env_steps_per_actor_step)
     env_steps_per_actor_step = args.action_repeat * args.num_envs
-
-    num_prefill_actor_steps = -(-args.learning_start // args.num_envs)
-    num_prefill_env_steps = num_prefill_actor_steps * env_steps_per_actor_step
-
-    assert args.total_timesteps - num_prefill_env_steps >= 0
+    num_prefill_actor_steps = args.learning_start // args.num_envs
     num_evals_after_init = max(args.num_evals - 1, 1)
-
-    # The number of run_one_sac_epoch calls per run_sac_training.
-    # equals to ceil(num_timesteps - num_prefill_env_steps / (num_evals_after_init * env_steps_per_actor_step))
-    num_training_steps_per_epoch = -(
-        -(args.total_timesteps - num_prefill_env_steps) // (num_evals_after_init * env_steps_per_actor_step)
-    )
-
-    assert args.num_envs % device_count == 0
+    num_training_steps_per_epoch = args.total_timesteps // (num_evals_after_init * env_steps_per_actor_step)
 
     # Environment
     env = environment
@@ -147,21 +160,9 @@ def train(
 
     rng = jax.random.PRNGKey(args.seed)
     rng, key = jax.random.split(rng)
-    v_randomization_fn = None
-
-    if randomization_fn is not None:
-        v_randomization_fn = functools.partial(
-            randomization_fn,
-            rng=jax.random.split(key, args.num_envs // jax.process_count() // local_devices_to_use),
-        )
 
     # Vectorization with Vmap from Brax
-    env = wrap_for_training(
-        env,
-        episode_length=args.episode_length,
-        action_repeat=args.action_repeat,
-        randomization_fn=v_randomization_fn,
-    )
+    env = wrap_for_training(env, episode_length=args.episode_length, action_repeat=args.action_repeat)
 
     # Observation & action spaces dimensions
     obs_size = env.observation_size
@@ -230,8 +231,6 @@ def train(
         policy_optimizer,
         pmap_axis_name=PMAP_AXIS_NAME,
     )
-
-    # TO CONDENSTATE ALL FUNCTIONS BELOW
 
     # One step of stochastic gradient descend for all params (alpha, policy params, q params)
     def sgd_step(
@@ -378,7 +377,6 @@ def train(
 
     prefill_replay_buffer = jax.pmap(prefill_replay_buffer, axis_name=PMAP_AXIS_NAME)
 
-    #
     def training_epoch(
         training_state: TrainingState,
         env_state: envs.State,
@@ -411,7 +409,7 @@ def train(
         key: PRNGKey,
     ) -> Tuple[TrainingState, envs.State, ReplayBufferState, Metrics]:
         nonlocal training_walltime
-        t = time.time()
+        t = perf_counter()
         (training_state, env_state, buffer_state, metrics) = training_epoch(
             training_state,
             env_state,
@@ -421,7 +419,7 @@ def train(
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
 
-        epoch_training_time = time.time() - t
+        epoch_training_time = perf_counter() - t
         training_walltime += epoch_training_time
         sps = (env_steps_per_actor_step * num_training_steps_per_epoch) / epoch_training_time
         metrics = {
@@ -469,6 +467,7 @@ def train(
     # Run initial eval
     metrics = {}
     if process_id == 0 and args.num_evals > 1:
+        print("init eval".center(50, "="))
         metrics = evaluator.run_evaluation(
             unpmap((training_state.normalizer_params, training_state.policy_params)),
             training_metrics={},
@@ -476,7 +475,6 @@ def train(
         progress_fn(0, metrics)
 
     # Create and initialize the replay buffer
-    t = time.time()
     prefill_key, local_key = jax.random.split(local_key)
     prefill_keys = jax.random.split(prefill_key, local_devices_to_use)
     training_state, env_state, buffer_state, _ = prefill_replay_buffer(
@@ -486,17 +484,16 @@ def train(
         prefill_keys,
     )
 
-    replay_size = jnp.sum(jax.vmap(replay_buffer.size)(buffer_state)) * jax.process_count()
-    print(f"replay size after prefill {replay_size}")
-    assert replay_size >= args.learning_start
-    training_walltime = time.time() - t
-
     # Main training loop
     current_step = 0
-    for _ in range(num_evals_after_init):
-        print(f"step {current_step}")
+    print("training".center(50, "="))
+    print(f"-- init training took {perf_counter() - t_pre_training:.2f}s")
+    t_training = perf_counter()
+    training_walltime = perf_counter()
 
+    for _ in range(num_evals_after_init):
         # Optimization
+        t_training_step = perf_counter()
         epoch_key, local_key = jax.random.split(local_key)
         epoch_keys = jax.random.split(epoch_key, local_devices_to_use)
         (training_state, env_state, buffer_state, training_metrics) = training_epoch_with_timing(
@@ -507,8 +504,8 @@ def train(
         )
         current_step = int(unpmap(training_state.env_steps))
 
-        # Progress function for training metrics
-        progress_fn(current_step, training_metrics)
+        print(f"-- training step {current_step}")
+        print(f"training took {perf_counter() - t_training_step:.2f}s")
 
         # Eval and logging
         if process_id == 0:
@@ -518,21 +515,26 @@ def train(
                 path = f"{checkpoint_logdir}/model_{current_step}.pkl"
                 save_params(path, params)
 
+            t_eval_step = perf_counter()
             # Run evals
             eval_metrics = evaluator.run_evaluation(
                 unpmap((training_state.normalizer_params, training_state.policy_params)),
                 training_metrics,
             )
+
+            print("- evaluation")
+            print(f"eval step took {perf_counter() - t_eval_step:.2f}s")
             progress_fn(current_step, eval_metrics)
 
-    total_steps = current_step
-    assert total_steps >= args.total_timesteps
+        print()
+
+    print(f"training took {perf_counter() - t_training:.2f}s")
+    assert current_step >= args.total_timesteps
 
     params = unpmap((training_state.normalizer_params, training_state.policy_params))
 
     # If there was no mistakes the training_state should still be identical on all devices
     assert_is_replicated(training_state)
-    print(f"total steps: {total_steps}")
     synchronize_hosts()
     return (make_policy, params, metrics)
 
@@ -545,6 +547,8 @@ if __name__ == "__main__":
 
     env = envs.get_environment(env_name=args_.env_name, backend=args_.backend)
 
+    metrics_filter = ["training/sps", "training/walltime", "eval/episode_reward", "eval/sps", "eval/walltime"]
+
     # Metrics progression of training
     # writer = SummaryWriter(path_to_save_model)
     # writer.add_text(
@@ -552,15 +556,10 @@ if __name__ == "__main__":
     #     "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args_).items()])),
     # )
 
-    # def progress(num_steps, metrics):
-    #     for key in metrics:
-    #         print(f"{key}: {metrics[key]}")
-    #         writer.add_scalar(key, metrics[key], num_steps)
-    #     print()
-    jax.profiler.start_trace("./trace")
-    train(
-        environment=env,
-        args=args_,
-        # progress_fn=progress,
-    )
-    jax.profiler.stop_trace()
+    def progress(num_steps, metrics):
+        print("- metrics")
+        for key in metrics:
+            if key in metrics_filter:
+                print(f"{key}: {round(metrics[key], 4)}")
+
+    train(environment=env, args=args_, progress_fn=progress)
