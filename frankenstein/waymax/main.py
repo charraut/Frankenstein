@@ -1,6 +1,6 @@
 import argparse
 import functools
-import warnings
+import os
 from time import perf_counter
 from typing import Callable, Optional, Sequence, Tuple, Union
 
@@ -11,8 +11,13 @@ from brax import (
     envs,  # brax environment
 )
 from brax.v1 import envs as envs_v1  # mujoco & basis environments
+from jax import numpy as jnp
 from jax.random import PRNGKey
 from tensorboardX import SummaryWriter
+from waymax import config as _config
+from waymax import env as _env
+from waymax import dataloader, dynamics
+from waymax.env.wrappers.brax_wrapper import BraxWrapper
 
 from frankenstein.brax.acting_in_env import actor_step
 from frankenstein.brax.evaluate import Evaluator
@@ -44,9 +49,6 @@ from frankenstein.brax.utils import (
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    # Environment
-    parser.add_argument("--env_name", type=str, default="halfcheetah")
-    parser.add_argument("--backend", type=str, default="generalized")
     # Training
     parser.add_argument("--total_timesteps", type=int, default=1_000_000)
     parser.add_argument("--episode_length", type=int, default=1_000)
@@ -145,17 +147,19 @@ def train(
     env = environment
 
     # Vmap Wrapper from Brax (inside: jax.vmap(env.reset and env.step())
-    wrap_for_training = envs.training.wrap if isinstance(env, envs.Env) else envs_v1.wrappers.wrap_for_training
+    # wrap_for_training = envs.training.wrap if isinstance(env, envs.Env) else envs_v1.wrappers.wrap_for_training
 
     rng = jax.random.PRNGKey(args.seed)
     rng, key = jax.random.split(rng)
 
     # Vectorization with Vmap from Brax
-    env = wrap_for_training(env, episode_length=args.episode_length, action_repeat=args.action_repeat)
+    # env = wrap_for_training(env, episode_length=args.episode_length, action_repeat=args.action_repeat)#
+
+    print(env)
 
     # Observation & action spaces dimensions
-    obs_size = env.observation_size
-    action_size = env.action_size
+    obs_size = env.observation_spec()
+    action_size = env.action_spec()
 
     if args.normalize_observations:
         normalize_fn = normalize
@@ -531,13 +535,25 @@ def train(
 
 
 if __name__ == "__main__":
-    warnings.filterwarnings("ignore")
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
     args_ = parse_args()
 
     exp_name = "SAC"
-    path_to_save_model = f"runs/{args_.env_name}/{exp_name}"
+    path_to_save_model = f"runs/waymax/{exp_name}"
 
-    env = envs.get_environment(env_name=args_.env_name, backend=args_.backend)
+    dynamics_model = dynamics.InvertibleBicycleModel()
+    env_config = _config.EnvironmentConfig()
+    scenarios = dataloader.simulator_state_generator(_config.WOD_1_1_0_TRAINING)
+    waymax_env = _env.PlanningAgentEnvironment(dynamics_model, env_config, scenarios)
+    env = BraxWrapper(waymax_env)
+
+    print(waymax_env)
+    print(waymax_env.action_spec())
+    print(waymax_env.observation_spec())
+    print(env)
+    print(env.observation_spec())
+    print(env.action_spec())
 
     metrics_filter = ["training/sps", "training/walltime", "eval/episode_reward", "eval/sps", "eval/walltime"]
 
