@@ -166,6 +166,13 @@ def handle_devices(max_devices_per_host):
         local_devices_to_use = min(local_devices_to_use, max_devices_per_host)
 
     device_count = local_devices_to_use * jax.process_count()
-    print(f"local_device_count: {local_devices_to_use}; total_device_count: {device_count}")
+
+    print("device".center(50, "="))
+    print(f"process_id: {process_id}")
+    print(f"local_devices_to_use: {local_devices_to_use}")
+    print(f"device_count: {device_count}")
+    print(f"jax.process_count(): {jax.process_count()}")
+    print(f"jax.default_backend(): {jax.default_backend()}")
+    print(f"jax.local_devices(): {jax.local_devices()}")
 
     return process_id, local_devices_to_use, device_count

@@ -38,7 +38,7 @@ from frankenstein.brax.utils import (
     synchronize_hosts,
     unpmap,
 )
-
+from tensorboardX import SummaryWriter
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -134,17 +134,6 @@ def train(
 
     # Devices handling
     process_id, local_devices_to_use, device_count = handle_devices(args.max_devices_per_host)
-
-    # Print all infos about devices
-    print("device".center(50, "="))
-    print(f"process_id: {process_id}")
-    print(f"local_devices_to_use: {local_devices_to_use}")
-    print(f"device_count: {device_count}")
-    print(f"jax.process_count(): {jax.process_count()}")
-    print(f"jax.local_device_count(): {jax.local_device_count()}")
-    print(f"jax.process_index(): {jax.process_index()}")
-    print(f"jax.default_backend(): {jax.default_backend()}")
-    print(f"jax.local_devices(): {jax.local_devices()}")
 
     # The number of environment steps executed for every `actor_step()` call, equals to ceil(learning_start / env_steps_per_actor_step)
     env_steps_per_actor_step = args.action_repeat * args.num_envs
@@ -467,7 +456,6 @@ def train(
     # Run initial eval
     metrics = {}
     if process_id == 0 and args.num_evals > 1:
-        print("init eval".center(50, "="))
         metrics = evaluator.run_evaluation(
             unpmap((training_state.normalizer_params, training_state.policy_params)),
             training_metrics={},
@@ -486,14 +474,16 @@ def train(
 
     # Main training loop
     current_step = 0
+    print(f"-> Pre-training: {perf_counter() - t_pre_training:.2f}s")
     print("training".center(50, "="))
-    print(f"-- init training took {perf_counter() - t_pre_training:.2f}s")
-    t_training = perf_counter()
+
+    time_training = perf_counter()
     training_walltime = perf_counter()
 
     for _ in range(num_evals_after_init):
-        # Optimization
-        t_training_step = perf_counter()
+        print(f"-> Step {current_step}/{args.total_timesteps} - {(current_step / args.total_timesteps) * 100:.2f}%")
+
+        time_training_epoch = perf_counter()
         epoch_key, local_key = jax.random.split(local_key)
         epoch_keys = jax.random.split(epoch_key, local_devices_to_use)
         (training_state, env_state, buffer_state, training_metrics) = training_epoch_with_timing(
@@ -503,9 +493,7 @@ def train(
             epoch_keys,
         )
         current_step = int(unpmap(training_state.env_steps))
-
-        print(f"-- training step {current_step}")
-        print(f"training took {perf_counter() - t_training_step:.2f}s")
+        training_step_done = perf_counter() - time_training_epoch
 
         # Eval and logging
         if process_id == 0:
@@ -515,20 +503,26 @@ def train(
                 path = f"{checkpoint_logdir}/model_{current_step}.pkl"
                 save_params(path, params)
 
-            t_eval_step = perf_counter()
+            time_eval_step = perf_counter()
             # Run evals
             eval_metrics = evaluator.run_evaluation(
                 unpmap((training_state.normalizer_params, training_state.policy_params)),
                 training_metrics,
             )
+            eval_step_done = perf_counter() - time_eval_step
 
-            print("- evaluation")
-            print(f"eval step took {perf_counter() - t_eval_step:.2f}s")
+            time_logging_step = perf_counter()
             progress_fn(current_step, eval_metrics)
+            logging_step_done = perf_counter() - time_logging_step
 
-        print()
+            training_epoch_done = perf_counter() - time_training_epoch
+            print(f"- step : {training_step_done:.2f}s - ({training_metrics['training/sps']:.2f} steps/s) - ratio: {training_step_done / training_epoch_done:.2f}")
+            print(f"- eval : {eval_step_done:.2f}s - ({eval_metrics['eval/sps']:.2f} steps/s) - ratio: {eval_step_done / training_epoch_done:.2f}")
+            print(f"- logs : {logging_step_done:.2f}s - ratio: {logging_step_done / training_epoch_done:.2f}")
+            print(f"- total: {training_epoch_done:.2f}s - reward: {eval_metrics['eval/episode_reward']:.2f}")
+            print()
 
-    print(f"training took {perf_counter() - t_training:.2f}s")
+    print(f"-> Training took {perf_counter() - time_training:.2f}s")
     assert current_step >= args.total_timesteps
 
     params = unpmap((training_state.normalizer_params, training_state.policy_params))
@@ -550,16 +544,15 @@ if __name__ == "__main__":
     metrics_filter = ["training/sps", "training/walltime", "eval/episode_reward", "eval/sps", "eval/walltime"]
 
     # Metrics progression of training
-    # writer = SummaryWriter(path_to_save_model)
-    # writer.add_text(
-    #     "hyperparameters",
-    #     "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args_).items()])),
-    # )
+    writer = SummaryWriter(path_to_save_model)
+    writer.add_text(
+        "hyperparameters",
+        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args_).items()])),
+    )
 
     def progress(num_steps, metrics):
-        print("- metrics")
         for key in metrics:
-            if key in metrics_filter:
-                print(f"{key}: {round(metrics[key], 4)}")
+            writer.add_scalar(key, metrics[key], num_steps)
+                
 
     train(environment=env, args=args_, progress_fn=progress)
