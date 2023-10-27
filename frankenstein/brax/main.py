@@ -45,12 +45,12 @@ from frankenstein.algorithms.jax_brax_sac.utils import (
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--env_name", type=str, default="halfcheetah")
-    parser.add_argument("--backend", type=str, default="generalized")
-    parser.add_argument("--total_timesteps", type=int, default=1_000_000)
+    parser.add_argument("--backend", type=str, default="spring")
+    parser.add_argument("--total_timesteps", type=int, default=100_000)
     parser.add_argument("--episode_length", type=int, default=1_000)
     parser.add_argument("--num_envs", type=int, default=128)
-    parser.add_argument("--num_eval_envs", type=int, default=128)
-    parser.add_argument("--num_evals", type=int, default=20)
+    parser.add_argument("--num_eval_envs", type=int, default=32)
+    parser.add_argument("--num_evals", type=int, default=5)
     parser.add_argument("--deterministic_eval", type=bool, default=True)
     parser.add_argument("--action_repeat", type=int, default=1)
     parser.add_argument("--reward_scaling", type=int, default=1)
@@ -58,10 +58,10 @@ def parse_args():
     parser.add_argument("--discount_factor", type=float, default=0.99)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
     parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--grad_updates_per_step", type=int, default=128)
+    parser.add_argument("--grad_updates_per_step", type=int, default=64)
     parser.add_argument("--max_devices_per_host", type=int, default=1)
     parser.add_argument("--buffer_size", type=int, default=100_000)
-    parser.add_argument("--learning_start", type=int, default=25000)
+    parser.add_argument("--learning_start", type=int, default=10000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--actor_layers", type=Sequence[int], default=(256, 256))
     parser.add_argument("--critic_layers", type=Sequence[int], default=(256, 256))
@@ -495,7 +495,7 @@ def train(
 
     # Main training loop
     current_step = 0
-    for _ in tqdm(range(num_evals_after_init)):
+    for _ in range(num_evals_after_init):
         print(f"step {current_step}")
 
         # Optimization
@@ -540,8 +540,6 @@ def train(
 
 
 if __name__ == "__main__":
-    # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
     args_ = parse_args()
 
     exp_name = "SAC"
@@ -550,21 +548,21 @@ if __name__ == "__main__":
     env = envs.get_environment(env_name=args_.env_name, backend=args_.backend)
 
     # Metrics progression of training
-    writer = SummaryWriter(path_to_save_model)
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args_).items()])),
-    )
+    # writer = SummaryWriter(path_to_save_model)
+    # writer.add_text(
+    #     "hyperparameters",
+    #     "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args_).items()])),
+    # )
 
-    def progress(num_steps, metrics):
-        for key in metrics:
-            print(f"{key}: {metrics[key]}")
-            writer.add_scalar(key, metrics[key], num_steps)
-        print()
-
+    # def progress(num_steps, metrics):
+    #     for key in metrics:
+    #         print(f"{key}: {metrics[key]}")
+    #         writer.add_scalar(key, metrics[key], num_steps)
+    #     print()
+    jax.profiler.start_trace("./trace")
     train(
         environment=env,
         args=args_,
-        checkpoint_logdir=path_to_save_model,
-        progress_fn=progress,
-    )
+        # progress_fn=progress,
+    )   
+    jax.profiler.stop_trace()
