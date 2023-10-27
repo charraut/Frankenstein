@@ -235,7 +235,7 @@ class Queue(QueueBase[Sample], Generic[Sample]):
 
     def size(self, buffer_state: ReplayBufferState) -> int:
         if self._cyclic:
-            return buffer_state.insert_position 
+            return buffer_state.insert_position
         else:
             return buffer_state.insert_position - buffer_state.sample_position
 

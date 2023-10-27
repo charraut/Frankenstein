@@ -11,6 +11,7 @@ from brax import (
     envs,  # brax environment
 )
 from brax.v1 import envs as envs_v1  # mujoco & basis environments
+from jax.random import PRNGKey
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 
@@ -18,7 +19,7 @@ from frankenstein.algorithms.jax_brax_sac.acting_in_env import actor_step
 from frankenstein.algorithms.jax_brax_sac.evaluate import Evaluator
 from frankenstein.algorithms.jax_brax_sac.losses_and_grad import gradient_update_fn, make_losses
 from frankenstein.algorithms.jax_brax_sac.networks import Params, SACNetworks, make_inference_fn, make_sac_networks
-from frankenstein.algorithms.jax_brax_sac.replay_buffers import UniformSamplingQueue
+from frankenstein.algorithms.jax_brax_sac.replay_buffers import ReplayBufferState, UniformSamplingQueue
 from frankenstein.algorithms.jax_brax_sac.running_statistics import (
     RunningStatisticsState,
     init_state,
@@ -40,8 +41,6 @@ from frankenstein.algorithms.jax_brax_sac.utils import (
     unpmap,
 )
 
-from jax.random import PRNGKey
-from frankenstein.algorithms.jax_brax_sac.replay_buffers import ReplayBufferState
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -218,12 +217,12 @@ def train(
     )
 
     # Update gradients for all losses
-    alpha_update = gradient_update_fn( 
+    alpha_update = gradient_update_fn(
         alpha_loss,
         alpha_optimizer,
         pmap_axis_name=PMAP_AXIS_NAME,
     )
-    critic_update = gradient_update_fn( 
+    critic_update = gradient_update_fn(
         critic_loss,
         q_optimizer,
         pmap_axis_name=PMAP_AXIS_NAME,
@@ -511,7 +510,7 @@ def train(
         current_step = int(unpmap(training_state.env_steps))
 
         # Progress function for training metrics
-        progress_fn(current_step, training_metrics)  
+        progress_fn(current_step, training_metrics)
 
         # Eval and logging
         if process_id == 0:
@@ -545,9 +544,9 @@ if __name__ == "__main__":
 
     args_ = parse_args()
 
-    exp_name = 'SAC'
+    exp_name = "SAC"
     path_to_save_model = f"runs/{args_.env_name}/{exp_name}"
-    
+
     env = envs.get_environment(env_name=args_.env_name, backend=args_.backend)
 
     # Metrics progression of training
