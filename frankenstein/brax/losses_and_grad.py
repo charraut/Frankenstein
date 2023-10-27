@@ -4,8 +4,8 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from frankenstein.algorithms.jax_brax_sac.networks import Params, SACNetworks
-from frankenstein.algorithms.jax_brax_sac.utils import PRNGKey, Transition
+from frankenstein.brax.networks import Params, SACNetworks
+from frankenstein.brax.utils import PRNGKey, Transition
 
 
 #############################

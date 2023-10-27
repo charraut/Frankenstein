@@ -5,9 +5,9 @@ import jax
 import numpy as np
 from brax import envs
 
-from frankenstein.algorithms.jax_brax_sac.acting_in_env import State, generate_unroll
-from frankenstein.algorithms.jax_brax_sac.networks import Policy, PolicyParams
-from frankenstein.algorithms.jax_brax_sac.utils import Metrics, PRNGKey
+from frankenstein.brax.acting_in_env import State, generate_unroll
+from frankenstein.brax.networks import Policy, PolicyParams
+from frankenstein.brax.utils import Metrics, PRNGKey
 
 
 class Evaluator:

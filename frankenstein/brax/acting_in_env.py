@@ -4,8 +4,8 @@ import jax
 from brax import envs
 from brax.v1 import envs as envs_v1
 
-from frankenstein.algorithms.jax_brax_sac.networks import Policy
-from frankenstein.algorithms.jax_brax_sac.utils import PRNGKey, Transition
+from frankenstein.brax.networks import Policy
+from frankenstein.brax.utils import PRNGKey, Transition
 
 
 State = Union[envs.State, envs_v1.State]

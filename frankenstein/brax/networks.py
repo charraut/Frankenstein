@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 from flax import linen
 
-from frankenstein.algorithms.jax_brax_sac.distributions import NormalTanhDistribution, ParametricDistribution
+from frankenstein.brax.distributions import NormalTanhDistribution, ParametricDistribution
 
 
 Params = Any

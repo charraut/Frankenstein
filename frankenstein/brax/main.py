@@ -12,15 +12,13 @@ from brax import (
 )
 from brax.v1 import envs as envs_v1  # mujoco & basis environments
 from jax.random import PRNGKey
-from tensorboardX import SummaryWriter
-from tqdm import tqdm
 
-from frankenstein.algorithms.jax_brax_sac.acting_in_env import actor_step
-from frankenstein.algorithms.jax_brax_sac.evaluate import Evaluator
-from frankenstein.algorithms.jax_brax_sac.losses_and_grad import gradient_update_fn, make_losses
-from frankenstein.algorithms.jax_brax_sac.networks import Params, SACNetworks, make_inference_fn, make_sac_networks
-from frankenstein.algorithms.jax_brax_sac.replay_buffers import ReplayBufferState, UniformSamplingQueue
-from frankenstein.algorithms.jax_brax_sac.running_statistics import (
+from frankenstein.brax.acting_in_env import actor_step
+from frankenstein.brax.evaluate import Evaluator
+from frankenstein.brax.losses_and_grad import gradient_update_fn, make_losses
+from frankenstein.brax.networks import Params, SACNetworks, make_inference_fn, make_sac_networks
+from frankenstein.brax.replay_buffers import ReplayBufferState, UniformSamplingQueue
+from frankenstein.brax.running_statistics import (
     RunningStatisticsState,
     init_state,
     normalize,
@@ -28,7 +26,7 @@ from frankenstein.algorithms.jax_brax_sac.running_statistics import (
 )
 
 # Local modules
-from frankenstein.algorithms.jax_brax_sac.utils import (
+from frankenstein.brax.utils import (
     PMAP_AXIS_NAME,
     Array,
     Metrics,
@@ -564,5 +562,5 @@ if __name__ == "__main__":
         environment=env,
         args=args_,
         # progress_fn=progress,
-    )   
+    )
     jax.profiler.stop_trace()
