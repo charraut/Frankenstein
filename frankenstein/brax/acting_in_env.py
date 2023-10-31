@@ -1,13 +1,11 @@
-from typing import Sequence, Tuple, Union
 
 import jax
 import jax.numpy as jnp
-from brax import envs
-from brax.v1 import envs as envs_v1
+from waymax.datatypes import Action
 
 from frankenstein.brax.networks import Policy
 from frankenstein.brax.utils import PRNGKey, Transition
-from waymax.datatypes import Action
+
 
 # Functions to act in the environment (outputs the action from policy then generates an Env step())
 def actor_step(
@@ -19,9 +17,7 @@ def actor_step(
     """Collect data."""
     actions, _ = policy(env_state.observation, key)
 
-    action_waymax = Action(
-        data=actions, valid=jnp.ones_like(actions[..., 0:1], dtype=jnp.bool_)
-    )
+    action_waymax = Action(data=actions, valid=jnp.ones_like(actions[..., 0:1], dtype=jnp.bool_))
     action_waymax.validate()
 
     nstate = env.step(env_state, action_waymax)

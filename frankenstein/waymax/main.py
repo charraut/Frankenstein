@@ -1,28 +1,26 @@
 import argparse
-import functools
+import dataclasses
 import os
 from time import perf_counter
 from typing import Callable, Optional, Sequence, Tuple, Union
-import dataclasses
+
 import jax
 import jax.numpy as jnp
 import optax
 from brax import (
     envs,  # brax environment
 )
-from waymax.datatypes import Action
 from brax.v1 import envs as envs_v1  # mujoco & basis environments
 from jax import numpy as jnp
 from jax.random import PRNGKey
 from tensorboardX import SummaryWriter
 from waymax import config as _config
-from waymax import env as _env
 from waymax import dataloader, dynamics
-from waymax.env.wrappers.brax_wrapper import BraxWrapper
+from waymax import env as _env
 from waymax.datatypes.observation import observation_from_state
+from waymax.env.wrappers.brax_wrapper import BraxWrapper
 
 from frankenstein.brax.acting_in_env import actor_step
-from frankenstein.brax.evaluate import Evaluator
 from frankenstein.brax.losses_and_grad import gradient_update_fn, make_losses
 from frankenstein.brax.networks import Params, SACNetworks, make_inference_fn, make_sac_networks
 from frankenstein.brax.replay_buffers import ReplayBufferState, UniformSamplingQueue
@@ -57,9 +55,7 @@ def parse_args():
     parser.add_argument("--num_envs", type=int, default=1)
     parser.add_argument("--grad_updates_per_step", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=64)
-    # Evaluation
-    parser.add_argument("--num_eval_envs", type=int, default=4)
-    parser.add_argument("--num_evals", type=int, default=0)
+    parser.add_argument("--log_freq", type=int, default=10)
     # SAC
     parser.add_argument("--discount_factor", type=float, default=0.99)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
@@ -143,8 +139,8 @@ def train(
     # The number of environment steps executed for every `actor_step()` call, equals to ceil(learning_start / env_steps_per_actor_step)
     env_steps_per_actor_step = args.action_repeat * args.num_envs
     num_prefill_actor_steps = args.learning_start // args.num_envs
-    num_evals_after_init = max(args.num_evals - 1, 1)
-    num_training_steps_per_epoch = args.total_timesteps // (num_evals_after_init * env_steps_per_actor_step)
+    num_epoch = max(args.log_freq - 1, 1)
+    num_training_steps_per_epoch = args.total_timesteps // (num_epoch * env_steps_per_actor_step)
 
     # Environment
     env = environment
@@ -446,25 +442,6 @@ def train(
 
     env_state = jax.pmap(env.reset)(init_scenario)
 
-    # Evaluator to evaluate policy sometimes
-    evaluator = Evaluator(
-        env,
-        functools.partial(make_policy, deterministic=args.deterministic_eval),
-        num_eval_envs=args.num_eval_envs,
-        episode_length=args.episode_length,
-        action_repeat=args.action_repeat,
-        key=eval_key,
-    )
-
-    # Run initial eval
-    metrics = {}
-    if process_id == 0 and args.num_evals > 1:
-        metrics = evaluator.run_evaluation(
-            unpmap((training_state.normalizer_params, training_state.policy_params)),
-            training_metrics={},
-        )
-        progress_fn(0, metrics)
-
     # Create and initialize the replay buffer
     prefill_key, local_key = jax.random.split(local_key)
     prefill_keys = jax.random.split(prefill_key, local_devices_to_use)
@@ -484,7 +461,7 @@ def train(
     time_training = perf_counter()
     training_walltime = perf_counter()
 
-    for _ in range(num_evals_after_init):
+    for _ in range(num_epoch):
         time_training_epoch = perf_counter()
         epoch_key, local_key = jax.random.split(local_key)
         epoch_keys = jax.random.split(epoch_key, local_devices_to_use)
@@ -505,28 +482,13 @@ def train(
                 path = f"{checkpoint_logdir}/model_{current_step}.pkl"
                 save_params(path, params)
 
-            time_eval_step = perf_counter()
-            # Run evals
-            eval_metrics = evaluator.run_evaluation(
-                unpmap((training_state.normalizer_params, training_state.policy_params)),
-                training_metrics,
-            )
-            eval_step_done = perf_counter() - time_eval_step
-
-            time_logging_step = perf_counter()
-            progress_fn(current_step, eval_metrics)
-            logging_step_done = perf_counter() - time_logging_step
+            progress_fn(current_step, training_metrics)
 
             training_epoch_done = perf_counter() - time_training_epoch
             print(f"-> Step {current_step}/{args.total_timesteps} - {(current_step / args.total_timesteps) * 100:.2f}%")
             print(
-                f"- step : {training_step_done:.2f}s - ({training_metrics['training/sps']:.2f} steps/s) - ratio: {training_step_done / training_epoch_done:.2f}",
+                f"- Time : {training_step_done:.2f}s - ({training_metrics['training/sps']:.2f} steps/s) - ratio: {training_step_done / training_epoch_done:.2f}",
             )
-            print(
-                f"- eval : {eval_step_done:.2f}s - ({eval_metrics['eval/sps']:.2f} steps/s) - ratio: {eval_step_done / training_epoch_done:.2f}",
-            )
-            print(f"- logs : {logging_step_done:.2f}s - ratio: {logging_step_done / training_epoch_done:.2f}")
-            print(f"- total: {training_epoch_done:.2f}s - reward: {eval_metrics['eval/episode_reward']:.2f}")
             print()
 
     print(f"-> Training took {perf_counter() - time_training:.2f}s")
@@ -539,12 +501,14 @@ def train(
     synchronize_hosts()
     return (make_policy, params, metrics)
 
+
 def get_observation_spec(sample_obs):
     num_envs = sample_obs.shape[1]
     _sample_obs = jax.tree_map(lambda x: x[0], sample_obs)
     _sample_obs = jax.tree_map(lambda x: x.reshape((num_envs, -1)), _sample_obs)
 
     return _sample_obs.shape[-1]
+
 
 def custom_obs(state):
     obs = observation_from_state(state)
@@ -560,6 +524,7 @@ def custom_obs(state):
 
     return traj
 
+
 if __name__ == "__main__":
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
@@ -574,7 +539,9 @@ if __name__ == "__main__":
     env_config = _config.EnvironmentConfig(max_num_objects=max_num_objects)
 
     scenarios = dataloader.simulator_state_generator(
-        dataclasses.replace(_config.WOD_1_1_0_TRAINING, max_num_objects=max_num_objects, batch_dims=(args_.num_envs,), distributed=True)
+        dataclasses.replace(
+            _config.WOD_1_1_0_TRAINING, max_num_objects=max_num_objects, batch_dims=(args_.num_envs,), distributed=True,
+        ),
     )
     waymax_env = _env.PlanningAgentEnvironment(dynamics_model, env_config)
     brax_env = BraxWrapper(waymax_env)
@@ -593,4 +560,4 @@ if __name__ == "__main__":
         for key in metrics:
             writer.add_scalar(key, metrics[key], num_steps)
 
-    train(environment=brax_env, scenarios=scenarios, args=args_,  progress_fn=progress)
+    train(environment=brax_env, scenarios=scenarios, args=args_, progress_fn=progress)

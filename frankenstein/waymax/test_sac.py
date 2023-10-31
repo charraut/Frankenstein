@@ -1,26 +1,27 @@
 import argparse
+import dataclasses
 import functools
 import time
 from collections import deque
 from datetime import datetime
 from typing import Sequence
-import dataclasses
+
 import flax
 import jax
 import numpy as np
 import optax
-from brax import envs
 from flax import linen as nn
 from flax.training.train_state import TrainState
 from jax import numpy as jnp
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from waymax import config as _config
-from waymax import env as _env
 from waymax import dataloader, dynamics
-from waymax.env.wrappers.brax_wrapper import BraxWrapper
+from waymax import env as _env
 from waymax.datatypes.action import Action
-from waymax.datatypes.observation import observation_from_state, transform_observation
+from waymax.datatypes.observation import observation_from_state
+from waymax.env.wrappers.brax_wrapper import BraxWrapper
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -45,11 +46,13 @@ def parse_args():
 
     return args
 
+
 def custom_obs(state):
     observation = observation_from_state(state, coordinate_frame=_config.CoordinateFrame.OBJECT)
     print(observation)
 
     return observation
+
 
 @functools.partial(jax.jit, static_argnums=0)
 def actor_output(apply_fn, params, state, key):
@@ -231,7 +234,7 @@ def train(args, run_name, run_dir):
     env_config = _config.EnvironmentConfig(max_num_objects=max_num_objects)
 
     scenarios = dataloader.simulator_state_generator(
-        dataclasses.replace(_config.WOD_1_1_0_TRAINING, max_num_objects=max_num_objects)
+        dataclasses.replace(_config.WOD_1_1_0_TRAINING, max_num_objects=max_num_objects),
     )
     env = BraxWrapper(_env.PlanningAgentEnvironment(dynamics_model, env_config))
     env.observe = custom_obs

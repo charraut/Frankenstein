@@ -35,8 +35,6 @@ class Evaluator:
         self._key = key
         self._eval_walltime = 0.0
 
-        eval_env = envs.training.EvalWrapper(eval_env)
-
         def generate_eval_unroll(policy_params: PolicyParams, key: PRNGKey):
             return generate_unroll(
                 eval_env,
