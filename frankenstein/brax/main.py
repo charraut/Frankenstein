@@ -156,6 +156,8 @@ def train(
     # Observation & action spaces dimensions
     obs_size = env.observation_size
     action_size = env.action_size
+    print(f"observation size: {obs_size}")
+    print(f"action size: {action_size}")
 
     if args.normalize_observations:
         normalize_fn = normalize
@@ -458,7 +460,9 @@ def train(
 
     # Create and initialize the replay buffer
     prefill_key, local_key = jax.random.split(local_key)
+
     prefill_keys = jax.random.split(prefill_key, local_devices_to_use)
+
     training_state, env_state, buffer_state, _ = prefill_replay_buffer(
         training_state,
         env_state,

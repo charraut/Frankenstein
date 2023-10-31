@@ -5,7 +5,7 @@ import jax
 import numpy as np
 from brax import envs
 
-from frankenstein.brax.acting_in_env import State, generate_unroll
+from frankenstein.brax.acting_in_env import generate_unroll
 from frankenstein.brax.networks import Policy, PolicyParams
 from frankenstein.brax.utils import Metrics, PRNGKey
 
@@ -37,9 +37,7 @@ class Evaluator:
 
         eval_env = envs.training.EvalWrapper(eval_env)
 
-        def generate_eval_unroll(policy_params: PolicyParams, key: PRNGKey) -> State:
-            reset_keys = jax.random.split(key, num_eval_envs)
-            eval_first_state = eval_env.reset(reset_keys)
+        def generate_eval_unroll(policy_params: PolicyParams, key: PRNGKey):
             return generate_unroll(
                 eval_env,
                 eval_first_state,

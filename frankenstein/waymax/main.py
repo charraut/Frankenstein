@@ -3,13 +3,14 @@ import functools
 import os
 from time import perf_counter
 from typing import Callable, Optional, Sequence, Tuple, Union
-
+import dataclasses
 import jax
 import jax.numpy as jnp
 import optax
 from brax import (
     envs,  # brax environment
 )
+from waymax.datatypes import Action
 from brax.v1 import envs as envs_v1  # mujoco & basis environments
 from jax import numpy as jnp
 from jax.random import PRNGKey
@@ -18,6 +19,7 @@ from waymax import config as _config
 from waymax import env as _env
 from waymax import dataloader, dynamics
 from waymax.env.wrappers.brax_wrapper import BraxWrapper
+from waymax.datatypes.observation import observation_from_state
 
 from frankenstein.brax.acting_in_env import actor_step
 from frankenstein.brax.evaluate import Evaluator
@@ -52,12 +54,12 @@ def parse_args():
     # Training
     parser.add_argument("--total_timesteps", type=int, default=1_000_000)
     parser.add_argument("--episode_length", type=int, default=1_000)
-    parser.add_argument("--num_envs", type=int, default=1024)
-    parser.add_argument("--grad_updates_per_step", type=int, default=512)
-    parser.add_argument("--batch_size", type=int, default=512)
+    parser.add_argument("--num_envs", type=int, default=1)
+    parser.add_argument("--grad_updates_per_step", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=64)
     # Evaluation
-    parser.add_argument("--num_eval_envs", type=int, default=128)
-    parser.add_argument("--num_evals", type=int, default=10)
+    parser.add_argument("--num_eval_envs", type=int, default=4)
+    parser.add_argument("--num_evals", type=int, default=0)
     # SAC
     parser.add_argument("--discount_factor", type=float, default=0.99)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
@@ -121,7 +123,8 @@ def init_training_state(
 
 
 def train(
-    environment: Union[envs_v1.Env, envs.Env],
+    environment,
+    scenarios,
     args,
     progress_fn: Callable[[int, Metrics], None] = lambda *args: None,
     checkpoint_logdir: Optional[str] = None,
@@ -155,11 +158,14 @@ def train(
     # Vectorization with Vmap from Brax
     # env = wrap_for_training(env, episode_length=args.episode_length, action_repeat=args.action_repeat)#
 
-    print(env)
+    init_scenario = next(scenarios)
+    init_time_step = env.reset(init_scenario)
 
     # Observation & action spaces dimensions
-    obs_size = env.observation_spec()
-    action_size = env.action_spec()
+    obs_size = get_observation_spec(init_time_step.observation)
+    action_size = env.action_spec().data.shape[0]
+    print(f"observation size: {obs_size}")
+    print(f"action size: {action_size}")
 
     if args.normalize_observations:
         normalize_fn = normalize
@@ -297,9 +303,10 @@ def train(
         key: PRNGKey,
     ) -> Tuple[RunningStatisticsState, Union[envs.State, envs_v1.State], ReplayBufferState]:
         policy = make_policy((normalizer_params, policy_params))
-        env_state, transitions = actor_step(env, env_state, policy, key, extra_fields=("truncation",))
+        env_state, transitions = actor_step(env, env_state, policy, key)
 
         # Updates the running statistics with the given batch of data
+
         normalizer_params = update(
             normalizer_params,
             transitions.observation,
@@ -437,9 +444,7 @@ def train(
     training_epoch = jax.pmap(training_epoch, axis_name=PMAP_AXIS_NAME)
     buffer_state = jax.pmap(replay_buffer.init)(jax.random.split(rb_key, local_devices_to_use))
 
-    env_keys = jax.random.split(env_key, args.num_envs // jax.process_count())
-    env_keys = jnp.reshape(env_keys, (local_devices_to_use, -1) + env_keys.shape[1:])
-    env_state = jax.pmap(env.reset)(env_keys)
+    env_state = jax.pmap(env.reset)(init_scenario)
 
     # Evaluator to evaluate policy sometimes
     evaluator = Evaluator(
@@ -463,6 +468,7 @@ def train(
     # Create and initialize the replay buffer
     prefill_key, local_key = jax.random.split(local_key)
     prefill_keys = jax.random.split(prefill_key, local_devices_to_use)
+
     training_state, env_state, buffer_state, _ = prefill_replay_buffer(
         training_state,
         env_state,
@@ -533,6 +539,26 @@ def train(
     synchronize_hosts()
     return (make_policy, params, metrics)
 
+def get_observation_spec(sample_obs):
+    num_envs = sample_obs.shape[1]
+    _sample_obs = jax.tree_map(lambda x: x[0], sample_obs)
+    _sample_obs = jax.tree_map(lambda x: x.reshape((num_envs, -1)), _sample_obs)
+
+    return _sample_obs.shape[-1]
+
+def custom_obs(state):
+    obs = observation_from_state(state)
+    traj = obs.trajectory.xy
+
+    if len(traj.shape) == 5:
+        num_envs = traj.shape[0]
+        traj = jax.tree_map(lambda x: x.reshape((num_envs, -1)), traj)
+    else:
+        batch_size = traj.shape[0]
+        num_envs = traj.shape[1]
+        traj = jax.tree_map(lambda x: x.reshape((batch_size, num_envs, -1)), traj)
+
+    return traj
 
 if __name__ == "__main__":
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -542,18 +568,17 @@ if __name__ == "__main__":
     exp_name = "SAC"
     path_to_save_model = f"runs/waymax/{exp_name}"
 
-    dynamics_model = dynamics.InvertibleBicycleModel()
-    env_config = _config.EnvironmentConfig()
-    scenarios = dataloader.simulator_state_generator(_config.WOD_1_1_0_TRAINING)
-    waymax_env = _env.PlanningAgentEnvironment(dynamics_model, env_config, scenarios)
-    env = BraxWrapper(waymax_env)
+    max_num_objects = 4
 
-    print(waymax_env)
-    print(waymax_env.action_spec())
-    print(waymax_env.observation_spec())
-    print(env)
-    print(env.observation_spec())
-    print(env.action_spec())
+    dynamics_model = dynamics.InvertibleBicycleModel(normalize_actions=True)
+    env_config = _config.EnvironmentConfig(max_num_objects=max_num_objects)
+
+    scenarios = dataloader.simulator_state_generator(
+        dataclasses.replace(_config.WOD_1_1_0_TRAINING, max_num_objects=max_num_objects, batch_dims=(args_.num_envs,), distributed=True)
+    )
+    waymax_env = _env.PlanningAgentEnvironment(dynamics_model, env_config)
+    brax_env = BraxWrapper(waymax_env)
+    brax_env.observe = custom_obs
 
     metrics_filter = ["training/sps", "training/walltime", "eval/episode_reward", "eval/sps", "eval/walltime"]
 
@@ -568,4 +593,4 @@ if __name__ == "__main__":
         for key in metrics:
             writer.add_scalar(key, metrics[key], num_steps)
 
-    train(environment=env, args=args_, progress_fn=progress)
+    train(environment=brax_env, scenarios=scenarios, args=args_,  progress_fn=progress)
